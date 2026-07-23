@@ -1,0 +1,32 @@
+{
+  "name": "maquina-comercial-ia",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/main/server.ts",
+    "build": "tsc",
+    "start": "node dist/main/server.js",
+    "worker": "node dist/main/worker.js",
+    "typecheck": "tsc --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.1.0",
+    "@prisma/client": "^6.13.0",
+    "dotenv": "^17.2.1",
+    "fastify": "^5.4.0",
+    "zod": "^4.0.10"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "prisma": "^6.13.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}

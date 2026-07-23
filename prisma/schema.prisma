@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Contact {
+  id              String           @id @default(cuid())
+  name            String?
+  email           String?          @unique
+  phone           String?          @unique
+  instagramHandle String?
+  preferredChannel String?
+  status          ContactStatus    @default(active)
+  consentSource   String?
+  optOutAt        DateTime?
+  deletedAt       DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  quizSubmissions QuizSubmission[]
+  contactTags     ContactTag[]
+  leadScores      LeadScore[]
+  routeDecisions  RouteDecision[]
+  eventLogs       EventLog[]
+}
+
+model QuizSubmission {
+  id             String   @id @default(cuid())
+  contactId      String
+  source         String
+  pageUrl        String?
+  gargalo        String
+  resultTitle    String
+  secondCategory String?
+  scoresJson     Json?
+  answersJson    Json?
+  actionsJson    Json?
+  ctaResult      String?
+  utmJson        Json?
+  submittedAt    DateTime @default(now())
+  createdAt      DateTime @default(now())
+  contact        Contact  @relation(fields: [contactId], references: [id])
+
+  @@index([contactId])
+  @@index([gargalo])
+  @@index([source])
+}
+
+model Tag {
+  id          String       @id @default(cuid())
+  key         String       @unique
+  label       String?
+  createdAt   DateTime     @default(now())
+  contactTags ContactTag[]
+}
+
+model ContactTag {
+  id        String   @id @default(cuid())
+  contactId String
+  tagId     String
+  source    String?
+  createdAt DateTime @default(now())
+  contact   Contact  @relation(fields: [contactId], references: [id])
+  tag       Tag      @relation(fields: [tagId], references: [id])
+
+  @@unique([contactId, tagId])
+  @@index([contactId])
+  @@index([tagId])
+}
+
+model LeadScore {
+  id             String              @id @default(cuid())
+  contactId      String
+  score          Int
+  classification LeadClassification
+  reasonsJson    Json
+  calculatedAt   DateTime            @default(now())
+  createdAt      DateTime            @default(now())
+  contact        Contact             @relation(fields: [contactId], references: [id])
+
+  @@index([contactId])
+}
+
+model RouteDecision {
+  id          String   @id @default(cuid())
+  contactId   String
+  route       String
+  reason      String
+  createdAt   DateTime @default(now())
+  contact     Contact  @relation(fields: [contactId], references: [id])
+
+  @@index([contactId])
+  @@index([route])
+}
+
+model EventLog {
+  id        String   @id @default(cuid())
+  contactId String?
+  eventType String
+  payload   Json?
+  createdAt DateTime @default(now())
+  contact   Contact? @relation(fields: [contactId], references: [id])
+
+  @@index([contactId])
+  @@index([eventType])
+}
+
+enum ContactStatus {
+  active
+  paused
+  optout
+}
+
+enum LeadClassification {
+  frio
+  morno
+  quente
+  prioridade
+  sem_fit
+}
+
