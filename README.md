@@ -38,12 +38,16 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - relatório gerencial simples com distribuição por gargalo, classificação, rota, volume diário e eventos comerciais.
 - guardrail automático antes de copiar/registrar mensagem no CRM.
 - envio controlado de WhatsApp pelo backend via adaptador UAZAPI.
+- recebimento de mensagens WhatsApp por webhook UAZAPI.
 
 ## Rotas principais
 
 ```text
 GET  /health
 POST /webhooks/quiz-raio-x
+POST /webhooks/uazapi
+POST /webhooks/uazapi/:event
+POST /webhooks/uazapi/:event/:type
 GET  /crm
 GET  /internal/leads
 GET  /internal/leads/:contactId
@@ -88,6 +92,7 @@ registro de mensagem copiada/enviada
 relatório gerencial simples
 guardrail automático de mensagens
 envio controlado de WhatsApp via backend/UAZAPI
+recebimento de mensagens WhatsApp via webhook UAZAPI
 ```
 
 Fluxo operacional recomendado:
@@ -119,6 +124,8 @@ crm_mensagem_enviada
 crm_mensagem_bloqueada
 crm_whatsapp_enviado
 crm_whatsapp_envio_falhou
+whatsapp_mensagem_recebida
+uazapi_mensagem_ignorada
 crm_lead_pausado
 crm_lead_reativado
 crm_lead_optout
@@ -148,6 +155,30 @@ UAZAPI_TOKEN
 
 Em produção, o dashboard exige `DASHBOARD_USER` e `DASHBOARD_PASSWORD`.
 O envio direto de WhatsApp exige `UAZAPI_BASE_URL` e `UAZAPI_TOKEN`.
+
+## Webhook UAZAPI
+
+Endpoint recomendado para mensagens recebidas:
+
+```text
+https://api.maquinacomercial.rota50ia.com/webhooks/uazapi/messages?token=[WEBHOOK_SECRET]
+```
+
+Configuração recomendada na UAZAPI:
+
+```json
+{
+  "enabled": true,
+  "url": "https://api.maquinacomercial.rota50ia.com/webhooks/uazapi/messages?token=[WEBHOOK_SECRET]",
+  "events": ["messages"],
+  "excludeMessages": ["fromMeYes", "isGroupYes"],
+  "addUrlEvents": false,
+  "addUrlTypesMessages": false,
+  "action": "add"
+}
+```
+
+Também é aceito o header `x-maquina-webhook-token` com o valor de `WEBHOOK_SECRET`.
 
 ## Regra central
 

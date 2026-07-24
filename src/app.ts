@@ -2,6 +2,7 @@ import cors from "@fastify/cors";
 import Fastify from "fastify";
 import { env } from "./shared/config/env.js";
 import { registerCrmRoutes } from "./modules/crm/routes.js";
+import { registerUazapiWebhookRoutes } from "./modules/channels/uazapi.webhook.js";
 import { registerHealthRoutes } from "./modules/health/routes.js";
 import { registerQuizRoutes } from "./modules/quiz/routes.js";
 
@@ -29,6 +30,7 @@ export async function buildApp() {
 
   await registerHealthRoutes(app);
   await registerQuizRoutes(app);
+  await registerUazapiWebhookRoutes(app);
   await registerCrmRoutes(app);
 
   return app;

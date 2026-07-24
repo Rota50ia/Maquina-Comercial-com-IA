@@ -880,6 +880,7 @@ export function renderCrmPage() {
         { key: "Mensagens copiadas", count: events.messagesCopied || 0 },
         { key: "Mensagens enviadas", count: events.messagesSent || 0 },
         { key: "WhatsApp enviados", count: events.whatsAppSent || 0 },
+        { key: "WhatsApp recebidos", count: events.whatsAppReceived || 0 },
         { key: "Falhas WhatsApp", count: events.whatsAppFailed || 0 },
         { key: "Contatos realizados", count: events.contactsDone || 0 },
         { key: "Contatos atualizados", count: events.contactUpdates || 0 },
