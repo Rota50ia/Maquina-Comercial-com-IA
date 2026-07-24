@@ -282,6 +282,30 @@ export function renderCrmPage() {
       gap: 7px;
     }
 
+    .period-presets {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .period-preset {
+      min-height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 750;
+      cursor: pointer;
+    }
+
+    .period-preset.active {
+      border-color: var(--accent);
+      background: var(--accent-weak);
+      color: var(--accent);
+    }
+
     .bar-list {
       display: grid;
       gap: 8px;
@@ -884,6 +908,11 @@ export function renderCrmPage() {
         '<span class="muted">→</span>',
         '<input id="reportDateTo" type="date" value="' + escapeHtml(dateTo) + '" aria-label="Data final do relatório">',
         '</div>',
+        '<div class="period-presets" aria-label="Atalhos de período">',
+        renderPeriodPresetButton("today", "Hoje", dateFrom, dateTo),
+        renderPeriodPresetButton("7", "7 dias", dateFrom, dateTo),
+        renderPeriodPresetButton("30", "30 dias", dateFrom, dateTo),
+        '</div>',
         '<span class="badge active">Operacional</span>',
         '</div>',
         '</div>',
@@ -924,6 +953,41 @@ export function renderCrmPage() {
 
       dateFromInput.addEventListener("change", handleChange);
       dateToInput.addEventListener("change", handleChange);
+
+      for (const button of document.querySelectorAll("[data-report-preset]")) {
+        button.addEventListener("click", () => {
+          const period = getPresetPeriod(button.dataset.reportPreset);
+          state.reportDateFrom = period.dateFrom;
+          state.reportDateTo = period.dateTo;
+          loadReport({ showFeedback: true });
+        });
+      }
+    }
+
+    function renderPeriodPresetButton(preset, label, dateFrom, dateTo) {
+      const period = getPresetPeriod(preset);
+      const active = period.dateFrom === dateFrom && period.dateTo === dateTo ? " active" : "";
+
+      return '<button class="period-preset' + active + '" type="button" data-report-preset="' + escapeHtml(preset) + '">' + escapeHtml(label) + '</button>';
+    }
+
+    function getPresetPeriod(preset) {
+      const today = new Date();
+      const days = Number(preset);
+
+      if (preset === "today" || !Number.isFinite(days) || days < 1) {
+        const date = getDateInputValue(today);
+
+        return {
+          dateFrom: date,
+          dateTo: date,
+        };
+      }
+
+      return {
+        dateFrom: getDateInputValue(addDays(today, -(days - 1))),
+        dateTo: getDateInputValue(today),
+      };
     }
 
     function getReportUrl() {

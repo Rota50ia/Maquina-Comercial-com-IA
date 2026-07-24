@@ -43,6 +43,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - relatório gerencial simples com distribuição por gargalo, classificação, rota, volume diário e eventos comerciais.
 - funil de atendimento no relatório gerencial.
 - período selecionável por intervalo de datas no relatório gerencial.
+- atalhos rápidos de período no relatório: Hoje, 7 dias e 30 dias.
 - guardrail automático antes de copiar/registrar mensagem no CRM.
 - envio controlado de WhatsApp pelo backend via adaptador UAZAPI.
 - recebimento de mensagens WhatsApp por webhook UAZAPI.
