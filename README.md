@@ -26,6 +26,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - score comercial inicial;
 - rota comercial inicial;
 - log de evento.
+- dashboard/CRM interno em `GET /crm`.
 
 ## Rodar localmente
 
@@ -43,7 +44,11 @@ DATABASE_URL
 WEBHOOK_SECRET
 APP_ORIGIN
 PORT
+DASHBOARD_USER
+DASHBOARD_PASSWORD
 ```
+
+Em produção, o dashboard exige `DASHBOARD_USER` e `DASHBOARD_PASSWORD`.
 
 ## Regra central
 

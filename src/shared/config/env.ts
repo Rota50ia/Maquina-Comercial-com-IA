@@ -7,7 +7,8 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   WEBHOOK_SECRET: z.string().optional(),
   APP_ORIGIN: z.string().default("*"),
+  DASHBOARD_USER: z.string().optional(),
+  DASHBOARD_PASSWORD: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);
-
