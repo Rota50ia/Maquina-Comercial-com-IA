@@ -109,6 +109,7 @@ const leadActionBodySchema = z
       "resolver_handoff",
       "agendar_followup",
       "followup_realizado",
+      "nota_rapida",
       "mensagem_copiada",
       "mensagem_enviada",
       "pausar",
@@ -125,6 +126,14 @@ const leadActionBodySchema = z
         code: "custom",
         path: ["dueAt"],
         message: "Informe data e hora do follow-up.",
+      });
+    }
+
+    if (value.action === "nota_rapida" && !value.note) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["note"],
+        message: "Informe a nota rápida.",
       });
     }
 

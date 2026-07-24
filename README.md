@@ -31,6 +31,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - painel de detalhe com diagnóstico, score, rota, tags e eventos.
 - edição de nome, e-mail e WhatsApp do lead no CRM.
 - ações manuais no CRM.
+- nota rápida no histórico do lead sem alterar status, rota ou envio.
 - fila de handoff humano.
 - marcação de atendimento iniciado para handoff humano.
 - visão Ações do dia para priorizar handoffs, follow-ups e leads recentes.

@@ -1192,6 +1192,7 @@ export function renderCrmPage() {
         ["Falhas WhatsApp", events.whatsAppFailed || 0],
         ["Contatos realizados", events.contactsDone || 0],
         ["Contatos atualizados", events.contactUpdates || 0],
+        ["Notas rápidas", events.quickNotes || 0],
       ];
     }
 
@@ -1287,6 +1288,7 @@ export function renderCrmPage() {
         { key: "Falhas WhatsApp", count: events.whatsAppFailed || 0 },
         { key: "Contatos realizados", count: events.contactsDone || 0 },
         { key: "Contatos atualizados", count: events.contactUpdates || 0 },
+        { key: "Notas rápidas", count: events.quickNotes || 0 },
       ];
 
       return renderBars(items);
@@ -1390,9 +1392,10 @@ export function renderCrmPage() {
           '<div class="notice" id="messageState">Mensagem editável antes do envio.</div>',
         ].join("")),
         section("Ações", [
-          '<textarea id="actionNote" maxlength="500" placeholder="Nota opcional para registrar no histórico"></textarea>',
+          '<textarea id="actionNote" maxlength="500" placeholder="Nota rápida ou contexto opcional para registrar no histórico"></textarea>',
           '<input id="followUpDueAt" type="datetime-local" aria-label="Data e hora do follow-up">',
           '<div class="actions-grid">',
+          actionButton("nota_rapida", "Salvar nota", "primary"),
           actionButton("marcar_para_contato", "Marcar para contato", "primary"),
           actionButton("contato_realizado", "Contato realizado", ""),
           actionButton("agendar_followup", "Agendar follow-up", "primary"),
@@ -1436,6 +1439,11 @@ export function renderCrmPage() {
 
       if (action === "agendar_followup" && (!dueAt || !dueAt.value)) {
         actionState.textContent = "Informe data e hora para agendar o follow-up.";
+        return;
+      }
+
+      if (action === "nota_rapida" && (!note || !note.value.trim())) {
+        actionState.textContent = "Escreva a nota antes de salvar.";
         return;
       }
 

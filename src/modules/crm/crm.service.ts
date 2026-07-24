@@ -28,6 +28,7 @@ export type LeadActionInput = {
     | "resolver_handoff"
     | "agendar_followup"
     | "followup_realizado"
+    | "nota_rapida"
     | "mensagem_copiada"
     | "mensagem_enviada"
     | "pausar"
@@ -89,9 +90,11 @@ const REPORT_TIME_ZONE_OFFSET = "-03:00";
 const FOLLOWUP_SCHEDULED_EVENT = "crm_followup_agendado";
 const FOLLOWUP_DONE_EVENT = "crm_followup_realizado";
 const CONTACT_UPDATED_EVENT = "crm_contato_atualizado";
+const QUICK_NOTE_EVENT = "crm_nota_rapida";
 const COMMERCIAL_EVENT_TYPES = [
   "raio_x_lead_capturado",
   CONTACT_UPDATED_EVENT,
+  QUICK_NOTE_EVENT,
   "crm_marcar_para_contato",
   "crm_contato_realizado",
   "crm_handoff_humano",
@@ -889,6 +892,7 @@ function getEventTypeForAction(action: LeadActionInput["action"]) {
     resolver_handoff: "crm_handoff_resolvido",
     agendar_followup: FOLLOWUP_SCHEDULED_EVENT,
     followup_realizado: FOLLOWUP_DONE_EVENT,
+    nota_rapida: QUICK_NOTE_EVENT,
     mensagem_copiada: "crm_mensagem_copiada",
     mensagem_enviada: "crm_mensagem_enviada",
     pausar: "crm_lead_pausado",
@@ -1060,6 +1064,7 @@ function summarizeCommercialEvents(events: Array<{ eventType: string }>) {
     ).length,
     contactsDone: relevantEvents.filter((event) => event.eventType === "crm_contato_realizado").length,
     contactUpdates: relevantEvents.filter((event) => event.eventType === CONTACT_UPDATED_EVENT).length,
+    quickNotes: relevantEvents.filter((event) => event.eventType === QUICK_NOTE_EVENT).length,
   };
 }
 
