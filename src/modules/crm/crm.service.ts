@@ -6,6 +6,7 @@ export type LeadListFilters = {
   gargalo?: string;
   route?: string;
   status?: ContactStatus;
+  handoff?: boolean;
   limit?: number;
 };
 
@@ -14,6 +15,7 @@ export type LeadActionInput = {
     | "marcar_para_contato"
     | "contato_realizado"
     | "handoff_humano"
+    | "resolver_handoff"
     | "pausar"
     | "reativar"
     | "optout";
@@ -31,6 +33,9 @@ type LeadSummaryItem = {
     route: string;
   } | null;
 };
+
+const HUMAN_HANDOFF_ROUTE = "rota:chamar-humano";
+const RESOLVED_HANDOFF_ROUTE = "rota:handoff-resolvido";
 
 export async function listLeads(filters: LeadListFilters) {
   const where: Prisma.ContactWhereInput = {
@@ -68,7 +73,7 @@ export async function listLeads(filters: LeadListFilters) {
   const contacts = await prisma.contact.findMany({
     where,
     orderBy: { updatedAt: "desc" },
-    take: filters.limit ?? 100,
+    take: filters.handoff ? 250 : (filters.limit ?? 100),
     select: {
       id: true,
       name: true,
@@ -144,12 +149,13 @@ export async function listLeads(filters: LeadListFilters) {
     eventLogs: undefined,
     contactTags: undefined,
   }));
+  const visibleLeads = filters.handoff ? leads.filter(isLeadInHandoffQueue) : leads;
 
   return {
     ok: true,
-    total: leads.length,
-    summary: summarizeLeads(leads),
-    leads,
+    total: visibleLeads.length,
+    summary: summarizeLeads(visibleLeads),
+    leads: visibleLeads.slice(0, filters.limit ?? 100),
   };
 }
 
@@ -226,22 +232,34 @@ export async function applyLeadAction(contactId: string, input: LeadActionInput)
   await prisma.$transaction(async (tx) => {
     const status = getStatusForAction(input.action);
 
-    if (status) {
-      await tx.contact.update({
-        where: { id: contactId },
-        data: {
-          status,
-          optOutAt: status === "optout" ? new Date() : null,
-        },
-      });
-    }
+    await tx.contact.update({
+      where: { id: contactId },
+      data: status
+        ? {
+            status,
+            optOutAt: status === "optout" ? new Date() : null,
+          }
+        : {
+            updatedAt: new Date(),
+          },
+    });
 
     if (input.action === "handoff_humano") {
       await tx.routeDecision.create({
         data: {
           contactId,
-          route: "rota:chamar-humano",
+          route: HUMAN_HANDOFF_ROUTE,
           reason: input.note || "handoff humano acionado manualmente no CRM",
+        },
+      });
+    }
+
+    if (input.action === "resolver_handoff") {
+      await tx.routeDecision.create({
+        data: {
+          contactId,
+          route: RESOLVED_HANDOFF_ROUTE,
+          reason: input.note || "handoff humano resolvido no CRM",
         },
       });
     }
@@ -277,12 +295,19 @@ function getEventTypeForAction(action: LeadActionInput["action"]) {
     marcar_para_contato: "crm_marcar_para_contato",
     contato_realizado: "crm_contato_realizado",
     handoff_humano: "crm_handoff_humano",
+    resolver_handoff: "crm_handoff_resolvido",
     pausar: "crm_lead_pausado",
     reativar: "crm_lead_reativado",
     optout: "crm_lead_optout",
   };
 
   return eventTypeByAction[action];
+}
+
+function isLeadInHandoffQueue(lead: LeadSummaryItem) {
+  if (lead.latestRoute?.route === RESOLVED_HANDOFF_ROUTE) return false;
+
+  return lead.latestRoute?.route === HUMAN_HANDOFF_ROUTE || lead.latestScore?.classification === "prioridade";
 }
 
 function summarizeLeads(leads: LeadSummaryItem[]) {

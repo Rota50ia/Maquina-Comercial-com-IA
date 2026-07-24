@@ -108,6 +108,7 @@ export function renderCrmPage() {
     }
 
     .toolbar,
+    .view-tabs,
     .table-wrap,
     .detail {
       background: var(--panel);
@@ -121,6 +122,30 @@ export function renderCrmPage() {
       gap: 10px;
       padding: 12px;
       margin-bottom: 12px;
+    }
+
+    .view-tabs {
+      display: inline-grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      padding: 4px;
+      margin-bottom: 12px;
+    }
+
+    .view-button {
+      min-height: 34px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--muted);
+      padding: 0 12px;
+      font-weight: 750;
+      cursor: pointer;
+    }
+
+    .view-button.active {
+      background: var(--ink);
+      color: #fff;
     }
 
     input,
@@ -373,6 +398,10 @@ export function renderCrmPage() {
   <main class="shell">
     <section>
       <div class="metrics" id="metrics"></div>
+      <div class="view-tabs" aria-label="Visão do CRM">
+        <button class="view-button active" type="button" data-view="all">Todos</button>
+        <button class="view-button" type="button" data-view="handoff">Fila handoff</button>
+      </div>
       <div class="toolbar">
         <input id="searchInput" type="search" placeholder="Buscar por nome, e-mail, WhatsApp ou tag">
         <select id="classificationFilter" aria-label="Filtrar por classificação">
@@ -427,6 +456,7 @@ export function renderCrmPage() {
       leads: [],
       filtered: [],
       selectedId: null,
+      view: "all",
     };
 
     const elements = {
@@ -441,6 +471,7 @@ export function renderCrmPage() {
       status: document.getElementById("statusFilter"),
       refresh: document.getElementById("refreshButton"),
       lastUpdated: document.getElementById("lastUpdated"),
+      viewButtons: Array.from(document.querySelectorAll("[data-view]")),
     };
 
     elements.refresh.addEventListener("click", () => loadLeads({ refreshDetail: true, showFeedback: true }));
@@ -449,6 +480,9 @@ export function renderCrmPage() {
     elements.gargalo.addEventListener("change", applyFilters);
     elements.route.addEventListener("change", applyFilters);
     elements.status.addEventListener("change", applyFilters);
+    for (const button of elements.viewButtons) {
+      button.addEventListener("click", () => setView(button.dataset.view));
+    }
 
     loadLeads();
 
@@ -463,7 +497,8 @@ export function renderCrmPage() {
       }
 
       try {
-        const response = await fetch("/internal/leads", { credentials: "same-origin" });
+        const url = state.view === "handoff" ? "/internal/leads?handoff=true" : "/internal/leads";
+        const response = await fetch(url, { credentials: "same-origin" });
         if (!response.ok) throw new Error("Falha ao carregar leads.");
 
         const data = await response.json();
@@ -530,13 +565,13 @@ export function renderCrmPage() {
       const total = state.filtered.length;
       const quente = state.filtered.filter((lead) => lead.latestScore && lead.latestScore.classification === "quente").length;
       const prioridade = state.filtered.filter((lead) => lead.latestScore && lead.latestScore.classification === "prioridade").length;
-      const pausados = state.filtered.filter((lead) => lead.status === "paused").length;
+      const handoff = state.filtered.filter(isLeadInHandoffQueue).length;
 
       elements.metrics.innerHTML = [
         metric("Leads", total),
         metric("Quentes", quente),
         metric("Prioridade", prioridade),
-        metric("Pausados", pausados),
+        metric("Handoff", handoff),
       ].join("");
     }
 
@@ -574,6 +609,18 @@ export function renderCrmPage() {
         row.addEventListener("click", () => selectLead(lead.id));
         elements.rows.appendChild(row);
       }
+    }
+
+    function setView(view) {
+      state.view = view === "handoff" ? "handoff" : "all";
+      state.selectedId = null;
+      elements.detail.innerHTML = '<div class="detail-head"><h2>Selecione um lead</h2><div class="muted">O histórico aparecerá aqui.</div></div>';
+
+      for (const button of elements.viewButtons) {
+        button.classList.toggle("active", button.dataset.view === state.view);
+      }
+
+      loadLeads({ showFeedback: true });
     }
 
     function cell(content) {
@@ -624,6 +671,7 @@ export function renderCrmPage() {
           actionButton("marcar_para_contato", "Marcar para contato", "primary"),
           actionButton("contato_realizado", "Contato realizado", ""),
           actionButton("handoff_humano", "Handoff humano", "primary"),
+          actionButton("resolver_handoff", "Resolver handoff", ""),
           actionButton("pausar", "Pausar lead", ""),
           actionButton("reativar", "Reativar", ""),
           actionButton("optout", "Opt-out", "danger"),
@@ -736,6 +784,15 @@ export function renderCrmPage() {
       };
 
       return labels[status] || "Sem status";
+    }
+
+    function isLeadInHandoffQueue(lead) {
+      const latestRoute = lead.latestRoute && lead.latestRoute.route;
+      const classification = lead.latestScore && lead.latestScore.classification;
+
+      if (latestRoute === "rota:handoff-resolvido") return false;
+
+      return latestRoute === "rota:chamar-humano" || classification === "prioridade";
     }
 
     function eventNote(event) {

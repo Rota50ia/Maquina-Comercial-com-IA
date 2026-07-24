@@ -12,6 +12,7 @@ const leadListQuerySchema = z.object({
   gargalo: z.string().trim().min(1).optional(),
   route: z.string().trim().min(1).optional(),
   status: contactStatusSchema.optional(),
+  handoff: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
   limit: z.coerce.number().int().min(1).max(250).default(100),
 });
 
@@ -20,6 +21,7 @@ const leadActionBodySchema = z.object({
     "marcar_para_contato",
     "contato_realizado",
     "handoff_humano",
+    "resolver_handoff",
     "pausar",
     "reativar",
     "optout",
