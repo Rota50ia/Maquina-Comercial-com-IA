@@ -94,6 +94,7 @@ export function renderCrmPage() {
       color: var(--danger);
     }
 
+    .refresh:disabled,
     .action-button:disabled {
       cursor: wait;
       opacity: 0.62;
@@ -363,7 +364,7 @@ export function renderCrmPage() {
     <div class="shell topbar">
       <div>
         <h1>Máquina Comercial</h1>
-        <div class="subtitle">Leads, gargalos, score e rota comercial</div>
+        <div class="subtitle">Leads, gargalos, score e rota comercial <span id="lastUpdated"></span></div>
       </div>
       <button class="refresh" id="refreshButton" type="button">Atualizar</button>
     </div>
@@ -439,9 +440,10 @@ export function renderCrmPage() {
       route: document.getElementById("routeFilter"),
       status: document.getElementById("statusFilter"),
       refresh: document.getElementById("refreshButton"),
+      lastUpdated: document.getElementById("lastUpdated"),
     };
 
-    elements.refresh.addEventListener("click", loadLeads);
+    elements.refresh.addEventListener("click", () => loadLeads({ refreshDetail: true, showFeedback: true }));
     elements.search.addEventListener("input", applyFilters);
     elements.classification.addEventListener("change", applyFilters);
     elements.gargalo.addEventListener("change", applyFilters);
@@ -450,9 +452,15 @@ export function renderCrmPage() {
 
     loadLeads();
 
-    async function loadLeads() {
-      elements.tableState.textContent = "Carregando leads...";
-      elements.tableState.className = "empty";
+    async function loadLeads(options = {}) {
+      if (options.showFeedback) {
+        setRefreshState("Atualizando...", true);
+      }
+
+      if (!state.leads.length) {
+        elements.tableState.textContent = "Carregando leads...";
+        elements.tableState.className = "empty";
+      }
 
       try {
         const response = await fetch("/internal/leads", { credentials: "same-origin" });
@@ -463,9 +471,25 @@ export function renderCrmPage() {
         state.filtered = state.leads;
         populateDynamicFilters();
         applyFilters();
+
+        if (options.refreshDetail && state.selectedId) {
+          await selectLead(state.selectedId);
+        }
+
+        elements.lastUpdated.textContent = "· atualizado " + formatTime(new Date());
+
+        if (options.showFeedback) {
+          setRefreshState("Atualizado", false);
+          setTimeout(() => setRefreshState("Atualizar", false), 1200);
+        }
       } catch (error) {
         elements.tableState.textContent = error.message;
         elements.tableState.className = "error";
+
+        if (options.showFeedback) {
+          setRefreshState("Erro", false);
+          setTimeout(() => setRefreshState("Atualizar", false), 1600);
+        }
       }
     }
 
@@ -689,6 +713,19 @@ export function renderCrmPage() {
         hour: "2-digit",
         minute: "2-digit",
       }).format(new Date(value));
+    }
+
+    function formatTime(value) {
+      return new Intl.DateTimeFormat("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(value);
+    }
+
+    function setRefreshState(label, disabled) {
+      elements.refresh.textContent = label;
+      elements.refresh.disabled = disabled;
     }
 
     function statusLabel(status) {
