@@ -13,21 +13,35 @@ const leadListQuerySchema = z.object({
   route: z.string().trim().min(1).optional(),
   status: contactStatusSchema.optional(),
   handoff: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
+  followup: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
   limit: z.coerce.number().int().min(1).max(250).default(100),
 });
 
-const leadActionBodySchema = z.object({
-  action: z.enum([
-    "marcar_para_contato",
-    "contato_realizado",
-    "handoff_humano",
-    "resolver_handoff",
-    "pausar",
-    "reativar",
-    "optout",
-  ]),
-  note: z.string().trim().max(500).optional(),
-});
+const leadActionBodySchema = z
+  .object({
+    action: z.enum([
+      "marcar_para_contato",
+      "contato_realizado",
+      "handoff_humano",
+      "resolver_handoff",
+      "agendar_followup",
+      "followup_realizado",
+      "pausar",
+      "reativar",
+      "optout",
+    ]),
+    note: z.string().trim().max(500).optional(),
+    dueAt: z.string().trim().max(80).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.action === "agendar_followup" && !value.dueAt) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["dueAt"],
+        message: "Informe data e hora do follow-up.",
+      });
+    }
+  });
 
 export async function registerCrmRoutes(app: FastifyInstance) {
   app.get("/crm", async (request, reply) => {

@@ -126,7 +126,7 @@ export function renderCrmPage() {
 
     .view-tabs {
       display: inline-grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, 1fr);
       gap: 4px;
       padding: 4px;
       margin-bottom: 12px;
@@ -401,6 +401,7 @@ export function renderCrmPage() {
       <div class="view-tabs" aria-label="Visão do CRM">
         <button class="view-button active" type="button" data-view="all">Todos</button>
         <button class="view-button" type="button" data-view="handoff">Fila handoff</button>
+        <button class="view-button" type="button" data-view="followup">Follow-up</button>
       </div>
       <div class="toolbar">
         <input id="searchInput" type="search" placeholder="Buscar por nome, e-mail, WhatsApp ou tag">
@@ -497,7 +498,7 @@ export function renderCrmPage() {
       }
 
       try {
-        const url = state.view === "handoff" ? "/internal/leads?handoff=true" : "/internal/leads";
+        const url = getLeadsUrl();
         const response = await fetch(url, { credentials: "same-origin" });
         if (!response.ok) throw new Error("Falha ao carregar leads.");
 
@@ -564,13 +565,13 @@ export function renderCrmPage() {
     function renderMetrics() {
       const total = state.filtered.length;
       const quente = state.filtered.filter((lead) => lead.latestScore && lead.latestScore.classification === "quente").length;
-      const prioridade = state.filtered.filter((lead) => lead.latestScore && lead.latestScore.classification === "prioridade").length;
+      const followup = state.filtered.filter(isLeadInFollowUpQueue).length;
       const handoff = state.filtered.filter(isLeadInHandoffQueue).length;
 
       elements.metrics.innerHTML = [
         metric("Leads", total),
         metric("Quentes", quente),
-        metric("Prioridade", prioridade),
+        metric("Follow-up", followup),
         metric("Handoff", handoff),
       ].join("");
     }
@@ -612,7 +613,7 @@ export function renderCrmPage() {
     }
 
     function setView(view) {
-      state.view = view === "handoff" ? "handoff" : "all";
+      state.view = ["handoff", "followup"].includes(view) ? view : "all";
       state.selectedId = null;
       elements.detail.innerHTML = '<div class="detail-head"><h2>Selecione um lead</h2><div class="muted">O histórico aparecerá aqui.</div></div>';
 
@@ -621,6 +622,13 @@ export function renderCrmPage() {
       }
 
       loadLeads({ showFeedback: true });
+    }
+
+    function getLeadsUrl() {
+      if (state.view === "handoff") return "/internal/leads?handoff=true";
+      if (state.view === "followup") return "/internal/leads?followup=true";
+
+      return "/internal/leads";
     }
 
     function cell(content) {
@@ -647,6 +655,7 @@ export function renderCrmPage() {
       const latestQuiz = lead.quizSubmissions[0] || {};
       const latestScore = lead.leadScores[0] || {};
       const latestRoute = lead.routeDecisions[0] || {};
+      const latestFollowUp = getLatestFollowUpFromEvents(lead.eventLogs || []);
       const tags = (lead.tags || []).map((tag) => '<span class="badge">' + escapeHtml(tag.key) + '</span>').join("");
       const events = (lead.eventLogs || []).slice(0, 8).map((event) => (
         '<div class="kv"><span>' + formatDate(event.createdAt) + '</span><strong>' + escapeHtml(event.eventType) + eventNote(event) + '</strong></div>'
@@ -665,11 +674,19 @@ export function renderCrmPage() {
           kv("Rota", latestRoute.route || "-"),
           kv("Motivo", latestRoute.reason || "-"),
         ].join("")),
+        section("Follow-up", [
+          kv("Status", followUpStatusLabel(latestFollowUp)),
+          kv("Próxima ação", latestFollowUp && latestFollowUp.dueAt ? formatDate(latestFollowUp.dueAt) : "-"),
+          kv("Nota", latestFollowUp && latestFollowUp.note ? latestFollowUp.note : "-"),
+        ].join("")),
         section("Ações", [
           '<textarea id="actionNote" maxlength="500" placeholder="Nota opcional para registrar no histórico"></textarea>',
+          '<input id="followUpDueAt" type="datetime-local" aria-label="Data e hora do follow-up">',
           '<div class="actions-grid">',
           actionButton("marcar_para_contato", "Marcar para contato", "primary"),
           actionButton("contato_realizado", "Contato realizado", ""),
+          actionButton("agendar_followup", "Agendar follow-up", "primary"),
+          actionButton("followup_realizado", "Follow-up feito", ""),
           actionButton("handoff_humano", "Handoff humano", "primary"),
           actionButton("resolver_handoff", "Resolver handoff", ""),
           actionButton("pausar", "Pausar lead", ""),
@@ -693,8 +710,14 @@ export function renderCrmPage() {
 
     async function performLeadAction(leadId, action) {
       const note = document.getElementById("actionNote");
+      const dueAt = document.getElementById("followUpDueAt");
       const actionState = document.getElementById("actionState");
       const buttons = Array.from(elements.detail.querySelectorAll("[data-action]"));
+
+      if (action === "agendar_followup" && (!dueAt || !dueAt.value)) {
+        actionState.textContent = "Informe data e hora para agendar o follow-up.";
+        return;
+      }
 
       actionState.textContent = "Registrando ação...";
       buttons.forEach((button) => button.disabled = true);
@@ -709,6 +732,7 @@ export function renderCrmPage() {
           body: JSON.stringify({
             action,
             note: note && note.value ? note.value : undefined,
+            dueAt: dueAt && dueAt.value ? dueAt.value : undefined,
           }),
         });
 
@@ -795,9 +819,47 @@ export function renderCrmPage() {
       return latestRoute === "rota:chamar-humano" || classification === "prioridade";
     }
 
+    function isLeadInFollowUpQueue(lead) {
+      return lead.status !== "optout" && lead.latestFollowUp && lead.latestFollowUp.status === "pending";
+    }
+
+    function getLatestFollowUpFromEvents(events) {
+      const event = events.find((item) => ["crm_followup_agendado", "crm_followup_realizado"].includes(item.eventType));
+      if (!event) return null;
+
+      const payload = event.payload || {};
+
+      if (event.eventType === "crm_followup_realizado") {
+        return {
+          status: "done",
+          dueAt: payload.dueAt,
+          note: payload.note,
+        };
+      }
+
+      return {
+        status: "pending",
+        dueAt: payload.dueAt,
+        note: payload.note,
+      };
+    }
+
+    function followUpStatusLabel(followUp) {
+      if (!followUp) return "Sem follow-up";
+      if (followUp.status === "done") return "Realizado";
+
+      return "Pendente";
+    }
+
     function eventNote(event) {
       const note = event && event.payload && event.payload.note;
-      return note ? '<div class="muted">' + escapeHtml(note) + '</div>' : "";
+      const dueAt = event && event.payload && event.payload.dueAt;
+      const items = [];
+
+      if (note) items.push(escapeHtml(note));
+      if (dueAt) items.push("Follow-up: " + escapeHtml(formatDate(dueAt)));
+
+      return items.length ? '<div class="muted">' + items.join("<br>") + '</div>' : "";
     }
 
     function escapeHtml(value) {

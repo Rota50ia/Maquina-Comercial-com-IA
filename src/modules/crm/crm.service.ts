@@ -7,6 +7,7 @@ export type LeadListFilters = {
   route?: string;
   status?: ContactStatus;
   handoff?: boolean;
+  followup?: boolean;
   limit?: number;
 };
 
@@ -16,10 +17,13 @@ export type LeadActionInput = {
     | "contato_realizado"
     | "handoff_humano"
     | "resolver_handoff"
+    | "agendar_followup"
+    | "followup_realizado"
     | "pausar"
     | "reativar"
     | "optout";
   note?: string;
+  dueAt?: string;
 };
 
 type LeadSummaryItem = {
@@ -32,10 +36,17 @@ type LeadSummaryItem = {
   latestRoute: {
     route: string;
   } | null;
+  latestFollowUp?: {
+    status: string;
+    dueAt?: string;
+  } | null;
+  status?: ContactStatus;
 };
 
 const HUMAN_HANDOFF_ROUTE = "rota:chamar-humano";
 const RESOLVED_HANDOFF_ROUTE = "rota:handoff-resolvido";
+const FOLLOWUP_SCHEDULED_EVENT = "crm_followup_agendado";
+const FOLLOWUP_DONE_EVENT = "crm_followup_realizado";
 
 export async function listLeads(filters: LeadListFilters) {
   const where: Prisma.ContactWhereInput = {
@@ -73,7 +84,7 @@ export async function listLeads(filters: LeadListFilters) {
   const contacts = await prisma.contact.findMany({
     where,
     orderBy: { updatedAt: "desc" },
-    take: filters.handoff ? 250 : (filters.limit ?? 100),
+    take: filters.handoff || filters.followup ? 250 : (filters.limit ?? 100),
     select: {
       id: true,
       name: true,
@@ -116,9 +127,10 @@ export async function listLeads(filters: LeadListFilters) {
       },
       eventLogs: {
         orderBy: { createdAt: "desc" },
-        take: 1,
+        take: 20,
         select: {
           eventType: true,
+          payload: true,
           createdAt: true,
         },
       },
@@ -142,6 +154,7 @@ export async function listLeads(filters: LeadListFilters) {
     latestScore: contact.leadScores[0] ?? null,
     latestRoute: contact.routeDecisions[0] ?? null,
     latestEvent: contact.eventLogs[0] ?? null,
+    latestFollowUp: getLatestFollowUp(contact.eventLogs),
     tags: contact.contactTags.map((contactTag) => contactTag.tag),
     quizSubmissions: undefined,
     leadScores: undefined,
@@ -149,7 +162,12 @@ export async function listLeads(filters: LeadListFilters) {
     eventLogs: undefined,
     contactTags: undefined,
   }));
-  const visibleLeads = filters.handoff ? leads.filter(isLeadInHandoffQueue) : leads;
+  const visibleLeads = leads.filter((lead) => {
+    if (filters.handoff && !isLeadInHandoffQueue(lead)) return false;
+    if (filters.followup && !isLeadInFollowUpQueue(lead)) return false;
+
+    return true;
+  });
 
   return {
     ok: true,
@@ -272,6 +290,7 @@ export async function applyLeadAction(contactId: string, input: LeadActionInput)
           action: input.action,
           note: input.note,
           source: "crm",
+          dueAt: input.dueAt,
         }) as Prisma.InputJsonValue,
       },
     });
@@ -296,6 +315,8 @@ function getEventTypeForAction(action: LeadActionInput["action"]) {
     contato_realizado: "crm_contato_realizado",
     handoff_humano: "crm_handoff_humano",
     resolver_handoff: "crm_handoff_resolvido",
+    agendar_followup: FOLLOWUP_SCHEDULED_EVENT,
+    followup_realizado: FOLLOWUP_DONE_EVENT,
     pausar: "crm_lead_pausado",
     reativar: "crm_lead_reativado",
     optout: "crm_lead_optout",
@@ -308,6 +329,10 @@ function isLeadInHandoffQueue(lead: LeadSummaryItem) {
   if (lead.latestRoute?.route === RESOLVED_HANDOFF_ROUTE) return false;
 
   return lead.latestRoute?.route === HUMAN_HANDOFF_ROUTE || lead.latestScore?.classification === "prioridade";
+}
+
+function isLeadInFollowUpQueue(lead: LeadSummaryItem) {
+  return lead.status !== "optout" && lead.latestFollowUp?.status === "pending";
 }
 
 function summarizeLeads(leads: LeadSummaryItem[]) {
@@ -330,6 +355,35 @@ function summarizeLeads(leads: LeadSummaryItem[]) {
     byGargalo,
     byRoute,
   };
+}
+
+function getLatestFollowUp(events: Array<{ eventType: string; payload: Prisma.JsonValue; createdAt: Date }>) {
+  const latestFollowUpEvent = events.find((event) =>
+    [FOLLOWUP_SCHEDULED_EVENT, FOLLOWUP_DONE_EVENT].includes(event.eventType),
+  );
+
+  if (!latestFollowUpEvent) return null;
+
+  const payload = isJsonObject(latestFollowUpEvent.payload) ? latestFollowUpEvent.payload : {};
+
+  if (latestFollowUpEvent.eventType === FOLLOWUP_DONE_EVENT) {
+    return {
+      status: "done",
+      dueAt: typeof payload.dueAt === "string" ? payload.dueAt : undefined,
+      createdAt: latestFollowUpEvent.createdAt,
+    };
+  }
+
+  return {
+    status: "pending",
+    dueAt: typeof payload.dueAt === "string" ? payload.dueAt : undefined,
+    note: typeof payload.note === "string" ? payload.note : undefined,
+    createdAt: latestFollowUpEvent.createdAt,
+  };
+}
+
+function isJsonObject(value: Prisma.JsonValue): value is Prisma.JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function compactJson(value: Record<string, unknown>) {
