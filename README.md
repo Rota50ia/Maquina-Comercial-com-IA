@@ -44,6 +44,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - envio controlado de WhatsApp pelo backend via adaptador UAZAPI.
 - recebimento de mensagens WhatsApp por webhook UAZAPI.
 - detecção de intenção comercial em mensagens recebidas pelo WhatsApp.
+- fluxo operacional de handoff: fila, em atendimento e resolvidos.
 
 ## Rotas principais
 
@@ -103,6 +104,7 @@ guardrail automático de mensagens
 envio controlado de WhatsApp via backend/UAZAPI
 recebimento de mensagens WhatsApp via webhook UAZAPI
 detecção de preço, call, compra ou interesse em mensagens recebidas
+fluxo Fila handoff -> Em atendimento -> Resolvidos
 ```
 
 Fluxo operacional recomendado:
@@ -117,6 +119,37 @@ Lead entra pelo quiz
 → registra mensagem enviada
 → agenda follow-up ou aciona handoff humano
 → acompanha volume, gargalos e eventos na aba Relatório
+```
+
+## Fluxo De Handoff WhatsApp
+
+Quando uma mensagem recebida pela UAZAPI indicar intenção comercial, o CRM conduz o lead por três estados operacionais:
+
+```text
+Fila handoff
+→ Em atendimento
+→ Resolvidos
+```
+
+Regras do fluxo:
+
+```text
+Mensagem recebida com intenção comercial cria rota:chamar-humano
+Lead aparece na aba Fila handoff
+Botão Atendimento iniciado cria rota:atendimento-iniciado
+Lead sai da Fila handoff e aparece na aba Em atendimento
+Botão Resolver handoff cria rota:handoff-resolvido
+Lead sai de Em atendimento e aparece na aba Resolvidos
+Nenhuma etapa envia resposta automática
+```
+
+Eventos principais do fluxo:
+
+```text
+whatsapp_mensagem_recebida
+whatsapp_intencao_comercial_detectada
+crm_atendimento_iniciado
+crm_handoff_resolvido
 ```
 
 ## Eventos operacionais do CRM
