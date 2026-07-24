@@ -20,6 +20,7 @@ export function renderCrmPage() {
       --ok: #15803d;
       --cold: #475569;
       --focus: #2563eb;
+      --danger: #b42318;
     }
 
     * { box-sizing: border-box; }
@@ -63,7 +64,8 @@ export function renderCrmPage() {
       font-size: 13px;
     }
 
-    .refresh {
+    .refresh,
+    .action-button {
       min-height: 36px;
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -72,6 +74,29 @@ export function renderCrmPage() {
       padding: 0 12px;
       font-weight: 650;
       cursor: pointer;
+    }
+
+    .action-button {
+      width: 100%;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    .action-button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .action-button.danger {
+      background: #fff;
+      border-color: #fecaca;
+      color: var(--danger);
+    }
+
+    .action-button:disabled {
+      cursor: wait;
+      opacity: 0.62;
     }
 
     main.shell {
@@ -91,16 +116,16 @@ export function renderCrmPage() {
 
     .toolbar {
       display: grid;
-      grid-template-columns: 1fr repeat(3, minmax(150px, 190px));
+      grid-template-columns: 1fr repeat(4, minmax(140px, 180px));
       gap: 10px;
       padding: 12px;
       margin-bottom: 12px;
     }
 
     input,
-    select {
+    select,
+    textarea {
       width: 100%;
-      min-height: 38px;
       border: 1px solid var(--line);
       border-radius: 6px;
       background: #fff;
@@ -109,8 +134,20 @@ export function renderCrmPage() {
       font: inherit;
     }
 
+    input,
+    select {
+      min-height: 38px;
+    }
+
+    textarea {
+      min-height: 78px;
+      padding: 10px;
+      resize: vertical;
+    }
+
     input:focus,
     select:focus,
+    textarea:focus,
     button:focus {
       outline: 2px solid var(--focus);
       outline-offset: 1px;
@@ -205,6 +242,9 @@ export function renderCrmPage() {
     .badge.prioridade { background: #fee4e2; color: var(--hot); }
     .badge.morno { background: #fef3c7; color: var(--warm); }
     .badge.frio { background: #e2e8f0; color: var(--cold); }
+    .badge.active { background: #dcfce7; color: var(--ok); }
+    .badge.paused { background: #fef3c7; color: var(--warm); }
+    .badge.optout { background: #fee4e2; color: var(--hot); }
 
     .detail {
       min-height: 520px;
@@ -255,6 +295,20 @@ export function renderCrmPage() {
       gap: 6px;
     }
 
+    .actions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .notice {
+      border-radius: 6px;
+      padding: 10px;
+      background: #f1f5f9;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
     .empty,
     .error {
       padding: 24px;
@@ -295,7 +349,7 @@ export function renderCrmPage() {
       }
 
       table {
-        min-width: 760px;
+        min-width: 860px;
       }
 
       .table-wrap {
@@ -333,17 +387,24 @@ export function renderCrmPage() {
         <select id="routeFilter" aria-label="Filtrar por rota">
           <option value="">Todas as rotas</option>
         </select>
+        <select id="statusFilter" aria-label="Filtrar por status">
+          <option value="">Todos os status</option>
+          <option value="active">Ativo</option>
+          <option value="paused">Pausado</option>
+          <option value="optout">Opt-out</option>
+        </select>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th style="width: 26%">Lead</th>
-              <th style="width: 16%">Gargalo</th>
+              <th style="width: 23%">Lead</th>
+              <th style="width: 13%">Status</th>
+              <th style="width: 14%">Gargalo</th>
               <th style="width: 12%">Score</th>
-              <th style="width: 24%">Rota</th>
-              <th style="width: 12%">Entrada</th>
-              <th style="width: 10%">Canal</th>
+              <th style="width: 22%">Rota</th>
+              <th style="width: 10%">Entrada</th>
+              <th style="width: 6%">Canal</th>
             </tr>
           </thead>
           <tbody id="leadRows"></tbody>
@@ -376,6 +437,7 @@ export function renderCrmPage() {
       classification: document.getElementById("classificationFilter"),
       gargalo: document.getElementById("gargaloFilter"),
       route: document.getElementById("routeFilter"),
+      status: document.getElementById("statusFilter"),
       refresh: document.getElementById("refreshButton"),
     };
 
@@ -384,6 +446,7 @@ export function renderCrmPage() {
     elements.classification.addEventListener("change", applyFilters);
     elements.gargalo.addEventListener("change", applyFilters);
     elements.route.addEventListener("change", applyFilters);
+    elements.status.addEventListener("change", applyFilters);
 
     loadLeads();
 
@@ -411,6 +474,7 @@ export function renderCrmPage() {
       const classification = elements.classification.value;
       const gargalo = elements.gargalo.value;
       const route = elements.route.value;
+      const status = elements.status.value;
 
       state.filtered = state.leads.filter((lead) => {
         const score = lead.latestScore;
@@ -421,6 +485,7 @@ export function renderCrmPage() {
           lead.name,
           lead.email,
           lead.phone,
+          lead.status,
           quiz && quiz.gargalo,
           decision && decision.route,
           tags,
@@ -429,7 +494,8 @@ export function renderCrmPage() {
         return (!query || searchable.includes(query))
           && (!classification || (score && score.classification === classification))
           && (!gargalo || (quiz && quiz.gargalo === gargalo))
-          && (!route || (decision && decision.route === route));
+          && (!route || (decision && decision.route === route))
+          && (!status || lead.status === status);
       });
 
       renderMetrics();
@@ -440,13 +506,13 @@ export function renderCrmPage() {
       const total = state.filtered.length;
       const quente = state.filtered.filter((lead) => lead.latestScore && lead.latestScore.classification === "quente").length;
       const prioridade = state.filtered.filter((lead) => lead.latestScore && lead.latestScore.classification === "prioridade").length;
-      const semRota = state.filtered.filter((lead) => !lead.latestRoute).length;
+      const pausados = state.filtered.filter((lead) => lead.status === "paused").length;
 
       elements.metrics.innerHTML = [
         metric("Leads", total),
         metric("Quentes", quente),
         metric("Prioridade", prioridade),
-        metric("Sem rota", semRota),
+        metric("Pausados", pausados),
       ].join("");
     }
 
@@ -474,6 +540,7 @@ export function renderCrmPage() {
         row.className = lead.id === state.selectedId ? "selected" : "";
         row.innerHTML = [
           cell('<span class="lead-name">' + escapeHtml(lead.name || "Lead sem nome") + '</span><span class="muted">' + escapeHtml(lead.email || lead.phone || "") + '</span>'),
+          cell('<span class="badge ' + escapeHtml(lead.status || "") + '">' + escapeHtml(statusLabel(lead.status)) + '</span>'),
           cell(escapeHtml(quiz.gargalo || "-")),
           cell('<span class="badge ' + escapeHtml(score.classification || "") + '">' + escapeHtml(score.classification || "sem score") + '</span><div class="muted">' + escapeHtml(score.score ?? "-") + '</div>'),
           cell(escapeHtml(route.route || "-") + '<div class="muted">' + escapeHtml(route.reason || "") + '</div>'),
@@ -511,11 +578,11 @@ export function renderCrmPage() {
       const latestRoute = lead.routeDecisions[0] || {};
       const tags = (lead.tags || []).map((tag) => '<span class="badge">' + escapeHtml(tag.key) + '</span>').join("");
       const events = (lead.eventLogs || []).slice(0, 8).map((event) => (
-        '<div class="kv"><span>' + formatDate(event.createdAt) + '</span><strong>' + escapeHtml(event.eventType) + '</strong></div>'
+        '<div class="kv"><span>' + formatDate(event.createdAt) + '</span><strong>' + escapeHtml(event.eventType) + eventNote(event) + '</strong></div>'
       )).join("");
 
       elements.detail.innerHTML = [
-        '<div class="detail-head"><h2>' + escapeHtml(lead.name || "Lead sem nome") + '</h2><div class="muted">' + escapeHtml(lead.email || "") + ' ' + escapeHtml(lead.phone || "") + '</div></div>',
+        '<div class="detail-head"><h2>' + escapeHtml(lead.name || "Lead sem nome") + '</h2><div class="muted">' + escapeHtml(lead.email || "") + ' ' + escapeHtml(lead.phone || "") + '</div><div style="margin-top: 10px"><span class="badge ' + escapeHtml(lead.status || "") + '">' + escapeHtml(statusLabel(lead.status)) + '</span></div></div>',
         section("Diagnóstico", [
           kv("Gargalo", latestQuiz.gargalo || "-"),
           kv("Resultado", latestQuiz.resultTitle || "-"),
@@ -527,9 +594,62 @@ export function renderCrmPage() {
           kv("Rota", latestRoute.route || "-"),
           kv("Motivo", latestRoute.reason || "-"),
         ].join("")),
+        section("Ações", [
+          '<textarea id="actionNote" maxlength="500" placeholder="Nota opcional para registrar no histórico"></textarea>',
+          '<div class="actions-grid">',
+          actionButton("marcar_para_contato", "Marcar para contato", "primary"),
+          actionButton("contato_realizado", "Contato realizado", ""),
+          actionButton("handoff_humano", "Handoff humano", "primary"),
+          actionButton("pausar", "Pausar lead", ""),
+          actionButton("reativar", "Reativar", ""),
+          actionButton("optout", "Opt-out", "danger"),
+          '</div>',
+          '<div class="notice" id="actionState">As ações ficam registradas no histórico do lead.</div>',
+        ].join("")),
         section("Tags", '<div class="tag-list">' + (tags || '<span class="muted">Sem tags</span>') + '</div>'),
         section("Eventos", '<div class="stack">' + (events || '<span class="muted">Sem eventos</span>') + '</div>'),
       ].join("");
+
+      for (const button of elements.detail.querySelectorAll("[data-action]")) {
+        button.addEventListener("click", () => performLeadAction(lead.id, button.dataset.action));
+      }
+    }
+
+    function actionButton(action, label, variant) {
+      return '<button class="action-button ' + escapeHtml(variant) + '" type="button" data-action="' + escapeHtml(action) + '">' + escapeHtml(label) + '</button>';
+    }
+
+    async function performLeadAction(leadId, action) {
+      const note = document.getElementById("actionNote");
+      const actionState = document.getElementById("actionState");
+      const buttons = Array.from(elements.detail.querySelectorAll("[data-action]"));
+
+      actionState.textContent = "Registrando ação...";
+      buttons.forEach((button) => button.disabled = true);
+
+      try {
+        const response = await fetch("/internal/leads/" + encodeURIComponent(leadId) + "/actions", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action,
+            note: note && note.value ? note.value : undefined,
+          }),
+        });
+
+        if (!response.ok) throw new Error("Falha ao registrar ação.");
+
+        const data = await response.json();
+        await loadLeads();
+        state.selectedId = leadId;
+        renderDetail(data.lead);
+      } catch (error) {
+        actionState.textContent = error.message;
+        buttons.forEach((button) => button.disabled = false);
+      }
     }
 
     function section(title, content) {
@@ -569,6 +689,21 @@ export function renderCrmPage() {
         hour: "2-digit",
         minute: "2-digit",
       }).format(new Date(value));
+    }
+
+    function statusLabel(status) {
+      const labels = {
+        active: "Ativo",
+        paused: "Pausado",
+        optout: "Opt-out",
+      };
+
+      return labels[status] || "Sem status";
+    }
+
+    function eventNote(event) {
+      const note = event && event.payload && event.payload.note;
+      return note ? '<div class="muted">' + escapeHtml(note) + '</div>' : "";
     }
 
     function escapeHtml(value) {

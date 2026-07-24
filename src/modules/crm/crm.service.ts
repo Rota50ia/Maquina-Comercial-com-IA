@@ -1,11 +1,23 @@
-import type { LeadClassification, Prisma } from "@prisma/client";
+import type { ContactStatus, LeadClassification, Prisma } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma.js";
 
 export type LeadListFilters = {
   classification?: LeadClassification;
   gargalo?: string;
   route?: string;
+  status?: ContactStatus;
   limit?: number;
+};
+
+export type LeadActionInput = {
+  action:
+    | "marcar_para_contato"
+    | "contato_realizado"
+    | "handoff_humano"
+    | "pausar"
+    | "reativar"
+    | "optout";
+  note?: string;
 };
 
 type LeadSummaryItem = {
@@ -49,6 +61,10 @@ export async function listLeads(filters: LeadListFilters) {
     };
   }
 
+  if (filters.status) {
+    where.status = filters.status;
+  }
+
   const contacts = await prisma.contact.findMany({
     where,
     orderBy: { updatedAt: "desc" },
@@ -59,6 +75,7 @@ export async function listLeads(filters: LeadListFilters) {
       email: true,
       phone: true,
       preferredChannel: true,
+      status: true,
       createdAt: true,
       updatedAt: true,
       quizSubmissions: {
@@ -198,6 +215,76 @@ export async function getLeadDetail(contactId: string) {
   };
 }
 
+export async function applyLeadAction(contactId: string, input: LeadActionInput) {
+  const contact = await prisma.contact.findUnique({
+    where: { id: contactId },
+    select: { id: true },
+  });
+
+  if (!contact) return null;
+
+  await prisma.$transaction(async (tx) => {
+    const status = getStatusForAction(input.action);
+
+    if (status) {
+      await tx.contact.update({
+        where: { id: contactId },
+        data: {
+          status,
+          optOutAt: status === "optout" ? new Date() : null,
+        },
+      });
+    }
+
+    if (input.action === "handoff_humano") {
+      await tx.routeDecision.create({
+        data: {
+          contactId,
+          route: "rota:chamar-humano",
+          reason: input.note || "handoff humano acionado manualmente no CRM",
+        },
+      });
+    }
+
+    await tx.eventLog.create({
+      data: {
+        contactId,
+        eventType: getEventTypeForAction(input.action),
+        payload: compactJson({
+          action: input.action,
+          note: input.note,
+          source: "crm",
+        }) as Prisma.InputJsonValue,
+      },
+    });
+  });
+
+  return getLeadDetail(contactId);
+}
+
+function getStatusForAction(action: LeadActionInput["action"]) {
+  const statusByAction: Partial<Record<LeadActionInput["action"], ContactStatus>> = {
+    pausar: "paused",
+    reativar: "active",
+    optout: "optout",
+  };
+
+  return statusByAction[action];
+}
+
+function getEventTypeForAction(action: LeadActionInput["action"]) {
+  const eventTypeByAction: Record<LeadActionInput["action"], string> = {
+    marcar_para_contato: "crm_marcar_para_contato",
+    contato_realizado: "crm_contato_realizado",
+    handoff_humano: "crm_handoff_humano",
+    pausar: "crm_lead_pausado",
+    reativar: "crm_lead_reativado",
+    optout: "crm_lead_optout",
+  };
+
+  return eventTypeByAction[action];
+}
+
 function summarizeLeads(leads: LeadSummaryItem[]) {
   const byClassification: Record<string, number> = {};
   const byGargalo: Record<string, number> = {};
@@ -218,4 +305,8 @@ function summarizeLeads(leads: LeadSummaryItem[]) {
     byGargalo,
     byRoute,
   };
+}
+
+function compactJson(value: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
 }
