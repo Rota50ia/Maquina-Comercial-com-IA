@@ -29,6 +29,10 @@ export type LeadActionInput = {
   message?: string;
 };
 
+export type CrmReportFilters = {
+  days?: number;
+};
+
 type LeadSummaryItem = {
   latestScore: {
     classification: string;
@@ -50,6 +54,20 @@ const HUMAN_HANDOFF_ROUTE = "rota:chamar-humano";
 const RESOLVED_HANDOFF_ROUTE = "rota:handoff-resolvido";
 const FOLLOWUP_SCHEDULED_EVENT = "crm_followup_agendado";
 const FOLLOWUP_DONE_EVENT = "crm_followup_realizado";
+const COMMERCIAL_EVENT_TYPES = [
+  "raio_x_lead_capturado",
+  "crm_marcar_para_contato",
+  "crm_contato_realizado",
+  "crm_handoff_humano",
+  "crm_handoff_resolvido",
+  "crm_followup_agendado",
+  "crm_followup_realizado",
+  "crm_mensagem_copiada",
+  "crm_mensagem_enviada",
+  "crm_lead_pausado",
+  "crm_lead_reativado",
+  "crm_lead_optout",
+];
 
 export async function listLeads(filters: LeadListFilters) {
   const where: Prisma.ContactWhereInput = {
@@ -303,6 +321,138 @@ export async function applyLeadAction(contactId: string, input: LeadActionInput)
   return getLeadDetail(contactId);
 }
 
+export async function getCrmReport(filters: CrmReportFilters) {
+  const days = filters.days ?? 14;
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  const [totalContacts, contacts, recentContacts, recentEvents] = await prisma.$transaction([
+    prisma.contact.count({
+      where: {
+        deletedAt: null,
+      },
+    }),
+    prisma.contact.findMany({
+      where: {
+        deletedAt: null,
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 1000,
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        quizSubmissions: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            gargalo: true,
+            source: true,
+            submittedAt: true,
+          },
+        },
+        leadScores: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            score: true,
+            classification: true,
+          },
+        },
+        routeDecisions: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            route: true,
+          },
+        },
+        eventLogs: {
+          orderBy: { createdAt: "desc" },
+          take: 20,
+          select: {
+            eventType: true,
+            payload: true,
+            createdAt: true,
+          },
+        },
+      },
+    }),
+    prisma.contact.findMany({
+      where: {
+        deletedAt: null,
+        createdAt: {
+          gte: since,
+        },
+      },
+      select: {
+        createdAt: true,
+      },
+    }),
+    prisma.eventLog.findMany({
+      where: {
+        createdAt: {
+          gte: since,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 80,
+      select: {
+        eventType: true,
+        payload: true,
+        createdAt: true,
+        contact: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+          },
+        },
+      },
+    }),
+  ]);
+
+  const leadItems = contacts.map((contact) => ({
+    status: contact.status,
+    latestQuizSubmission: contact.quizSubmissions[0] ?? null,
+    latestScore: contact.leadScores[0] ?? null,
+    latestRoute: contact.routeDecisions[0] ?? null,
+    latestFollowUp: getLatestFollowUp(contact.eventLogs),
+  }));
+
+  const handoffCount = leadItems.filter(isLeadInHandoffQueue).length;
+  const followUpCount = leadItems.filter(isLeadInFollowUpQueue).length;
+  const activeCount = contacts.filter((contact) => contact.status === "active").length;
+  const optOutCount = contacts.filter((contact) => contact.status === "optout").length;
+
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    period: {
+      days,
+      since: since.toISOString(),
+    },
+    totals: {
+      contacts: totalContacts,
+      active: activeCount,
+      optOut: optOutCount,
+      newContacts: recentContacts.length,
+      handoff: handoffCount,
+      followUp: followUpCount,
+    },
+    byGargalo: countBy(leadItems, (lead) => lead.latestQuizSubmission?.gargalo ?? "sem_gargalo"),
+    byClassification: countBy(leadItems, (lead) => lead.latestScore?.classification ?? "sem_score"),
+    byRoute: countBy(leadItems, (lead) => lead.latestRoute?.route ?? "sem_rota"),
+    leadsByDay: countDates(recentContacts.map((contact) => contact.createdAt)),
+    events: summarizeCommercialEvents(recentEvents),
+    latestEvents: recentEvents.slice(0, 12).map((event) => ({
+      eventType: event.eventType,
+      createdAt: event.createdAt,
+      contact: event.contact,
+      note: extractStringFromJson(event.payload, "note"),
+    })),
+  };
+}
+
 function getStatusForAction(action: LeadActionInput["action"]) {
   const statusByAction: Partial<Record<LeadActionInput["action"], ContactStatus>> = {
     pausar: "paused",
@@ -363,6 +513,46 @@ function summarizeLeads(leads: LeadSummaryItem[]) {
   };
 }
 
+function countBy<T>(items: T[], getKey: (item: T) => string) {
+  return Object.entries(
+    items.reduce<Record<string, number>>((accumulator, item) => {
+      const key = getKey(item);
+      accumulator[key] = (accumulator[key] ?? 0) + 1;
+
+      return accumulator;
+    }, {}),
+  )
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+}
+
+function countDates(dates: Date[]) {
+  return Object.entries(
+    dates.reduce<Record<string, number>>((accumulator, date) => {
+      const key = date.toISOString().slice(0, 10);
+      accumulator[key] = (accumulator[key] ?? 0) + 1;
+
+      return accumulator;
+    }, {}),
+  )
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function summarizeCommercialEvents(events: Array<{ eventType: string }>) {
+  const relevantEvents = events.filter((event) => COMMERCIAL_EVENT_TYPES.includes(event.eventType));
+
+  return {
+    handoffs: relevantEvents.filter((event) => event.eventType === "crm_handoff_humano").length,
+    handoffsResolved: relevantEvents.filter((event) => event.eventType === "crm_handoff_resolvido").length,
+    followUpsScheduled: relevantEvents.filter((event) => event.eventType === FOLLOWUP_SCHEDULED_EVENT).length,
+    followUpsDone: relevantEvents.filter((event) => event.eventType === FOLLOWUP_DONE_EVENT).length,
+    messagesCopied: relevantEvents.filter((event) => event.eventType === "crm_mensagem_copiada").length,
+    messagesSent: relevantEvents.filter((event) => event.eventType === "crm_mensagem_enviada").length,
+    contactsDone: relevantEvents.filter((event) => event.eventType === "crm_contato_realizado").length,
+  };
+}
+
 function getLatestFollowUp(events: Array<{ eventType: string; payload: Prisma.JsonValue; createdAt: Date }>) {
   const latestFollowUpEvent = events.find((event) =>
     [FOLLOWUP_SCHEDULED_EVENT, FOLLOWUP_DONE_EVENT].includes(event.eventType),
@@ -390,6 +580,13 @@ function getLatestFollowUp(events: Array<{ eventType: string; payload: Prisma.Js
 
 function isJsonObject(value: Prisma.JsonValue): value is Prisma.JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function extractStringFromJson(value: Prisma.JsonValue, key: string) {
+  if (!isJsonObject(value)) return undefined;
+  const item = value[key];
+
+  return typeof item === "string" ? item : undefined;
 }
 
 function compactJson(value: Record<string, unknown>) {

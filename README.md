@@ -34,6 +34,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - agenda/fila de follow-up.
 - sugestão segura de mensagem por gargalo/rota.
 - registro de mensagem copiada/enviada no histórico.
+- relatório gerencial simples com distribuição por gargalo, classificação, rota, volume diário e eventos comerciais.
 
 ## Rotas principais
 
@@ -43,6 +44,7 @@ POST /webhooks/quiz-raio-x
 GET  /crm
 GET  /internal/leads
 GET  /internal/leads/:contactId
+GET  /internal/reports/summary
 POST /internal/leads/:contactId/actions
 ```
 
@@ -76,6 +78,7 @@ fila de handoff
 agenda/fila de follow-up
 sugestão segura de mensagem
 registro de mensagem copiada/enviada
+relatório gerencial simples
 ```
 
 Fluxo operacional recomendado:
@@ -88,6 +91,7 @@ Lead entra pelo quiz
 → envia pelo WhatsApp
 → registra mensagem enviada
 → agenda follow-up ou aciona handoff humano
+→ acompanha volume, gargalos e eventos na aba Relatório
 ```
 
 ## Eventos operacionais do CRM

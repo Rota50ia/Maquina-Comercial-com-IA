@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { validateDashboardAuth } from "./auth.js";
-import { applyLeadAction, getLeadDetail, listLeads } from "./crm.service.js";
+import { applyLeadAction, getCrmReport, getLeadDetail, listLeads } from "./crm.service.js";
 import { renderCrmPage } from "./page.js";
 
 const leadClassificationSchema = z.enum(["frio", "morno", "quente", "prioridade", "sem_fit"]);
@@ -15,6 +15,10 @@ const leadListQuerySchema = z.object({
   handoff: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
   followup: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
   limit: z.coerce.number().int().min(1).max(250).default(100),
+});
+
+const reportQuerySchema = z.object({
+  days: z.coerce.number().int().min(1).max(90).default(14),
 });
 
 const leadActionBodySchema = z
@@ -96,6 +100,25 @@ export async function registerCrmRoutes(app: FastifyInstance) {
     }
 
     return detail;
+  });
+
+  app.get("/internal/reports/summary", async (request, reply) => {
+    const authReply = validateDashboardAuth(request, reply);
+    if (authReply) return authReply;
+
+    const queryResult = reportQuerySchema.safeParse(request.query);
+    if (!queryResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: "invalid_query",
+        issues: queryResult.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      });
+    }
+
+    return getCrmReport(queryResult.data);
   });
 
   app.post("/internal/leads/:contactId/actions", async (request, reply) => {

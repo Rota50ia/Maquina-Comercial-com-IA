@@ -107,9 +107,14 @@ export function renderCrmPage() {
       align-items: start;
     }
 
+    main.shell.report-mode {
+      grid-template-columns: 1fr;
+    }
+
     .toolbar,
     .view-tabs,
     .table-wrap,
+    .report,
     .detail {
       background: var(--panel);
       border: 1px solid var(--line);
@@ -126,7 +131,7 @@ export function renderCrmPage() {
 
     .view-tabs {
       display: inline-grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 4px;
       padding: 4px;
       margin-bottom: 12px;
@@ -208,6 +213,109 @@ export function renderCrmPage() {
     .metric strong {
       font-size: 24px;
       letter-spacing: 0;
+    }
+
+    .report {
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+
+    .report-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .report-head h2,
+    .report-section h3 {
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    .report-head h2 {
+      font-size: 18px;
+    }
+
+    .report-section h3 {
+      font-size: 13px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .report-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .report-section {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 160px;
+      background: #fff;
+    }
+
+    .report-section.full {
+      grid-column: 1 / -1;
+    }
+
+    .bar-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) minmax(120px, 2fr) 44px;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+
+    .bar-label {
+      overflow-wrap: anywhere;
+      font-weight: 650;
+    }
+
+    .bar-track {
+      height: 8px;
+      border-radius: 999px;
+      background: #edf2f4;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--accent);
+    }
+
+    .report-events {
+      display: grid;
+      gap: 8px;
+    }
+
+    .report-event {
+      display: grid;
+      grid-template-columns: 112px 1fr;
+      gap: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+    }
+
+    .report-event:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .hidden {
+      display: none !important;
     }
 
     table {
@@ -384,6 +492,17 @@ export function renderCrmPage() {
         grid-template-columns: 1fr 1fr;
       }
 
+      .view-tabs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .report-grid,
+      .bar-row,
+      .report-event {
+        grid-template-columns: 1fr;
+      }
+
       table {
         min-width: 860px;
       }
@@ -405,15 +524,17 @@ export function renderCrmPage() {
     </div>
   </header>
 
-  <main class="shell">
+  <main class="shell" id="crmShell">
     <section>
       <div class="metrics" id="metrics"></div>
       <div class="view-tabs" aria-label="Visão do CRM">
         <button class="view-button active" type="button" data-view="all">Todos</button>
         <button class="view-button" type="button" data-view="handoff">Fila handoff</button>
         <button class="view-button" type="button" data-view="followup">Follow-up</button>
+        <button class="view-button" type="button" data-view="report">Relatório</button>
       </div>
-      <div class="toolbar">
+      <div class="report hidden" id="reportPanel"></div>
+      <div class="toolbar" id="toolbar">
         <input id="searchInput" type="search" placeholder="Buscar por nome, e-mail, WhatsApp ou tag">
         <select id="classificationFilter" aria-label="Filtrar por classificação">
           <option value="">Todas as classificações</option>
@@ -435,7 +556,7 @@ export function renderCrmPage() {
           <option value="optout">Opt-out</option>
         </select>
       </div>
-      <div class="table-wrap">
+      <div class="table-wrap" id="tableWrap">
         <table>
           <thead>
             <tr>
@@ -468,10 +589,15 @@ export function renderCrmPage() {
       filtered: [],
       selectedId: null,
       view: "all",
+      report: null,
     };
 
     const elements = {
+      shell: document.getElementById("crmShell"),
       metrics: document.getElementById("metrics"),
+      report: document.getElementById("reportPanel"),
+      toolbar: document.getElementById("toolbar"),
+      tableWrap: document.getElementById("tableWrap"),
       rows: document.getElementById("leadRows"),
       tableState: document.getElementById("tableState"),
       detail: document.getElementById("detailPanel"),
@@ -485,7 +611,14 @@ export function renderCrmPage() {
       viewButtons: Array.from(document.querySelectorAll("[data-view]")),
     };
 
-    elements.refresh.addEventListener("click", () => loadLeads({ refreshDetail: true, showFeedback: true }));
+    elements.refresh.addEventListener("click", () => {
+      if (state.view === "report") {
+        loadReport({ showFeedback: true });
+        return;
+      }
+
+      loadLeads({ refreshDetail: true, showFeedback: true });
+    });
     elements.search.addEventListener("input", applyFilters);
     elements.classification.addEventListener("change", applyFilters);
     elements.gargalo.addEventListener("change", applyFilters);
@@ -623,7 +756,7 @@ export function renderCrmPage() {
     }
 
     function setView(view) {
-      state.view = ["handoff", "followup"].includes(view) ? view : "all";
+      state.view = ["handoff", "followup", "report"].includes(view) ? view : "all";
       state.selectedId = null;
       elements.detail.innerHTML = '<div class="detail-head"><h2>Selecione um lead</h2><div class="muted">O histórico aparecerá aqui.</div></div>';
 
@@ -631,7 +764,132 @@ export function renderCrmPage() {
         button.classList.toggle("active", button.dataset.view === state.view);
       }
 
+      toggleViewPanels();
+      if (state.view === "report") {
+        loadReport({ showFeedback: true });
+        return;
+      }
+
       loadLeads({ showFeedback: true });
+    }
+
+    function toggleViewPanels() {
+      const isReport = state.view === "report";
+      elements.shell.classList.toggle("report-mode", isReport);
+      elements.report.classList.toggle("hidden", !isReport);
+      elements.toolbar.classList.toggle("hidden", isReport);
+      elements.tableWrap.classList.toggle("hidden", isReport);
+      elements.detail.classList.toggle("hidden", isReport);
+    }
+
+    async function loadReport(options = {}) {
+      if (options.showFeedback) {
+        setRefreshState("Atualizando...", true);
+      }
+
+      elements.metrics.innerHTML = "";
+      elements.report.className = "report";
+      elements.report.innerHTML = '<div class="empty">Carregando relatório...</div>';
+
+      try {
+        const response = await fetch("/internal/reports/summary?days=14", { credentials: "same-origin" });
+        if (!response.ok) throw new Error("Falha ao carregar relatório.");
+
+        const data = await response.json();
+        state.report = data;
+        renderReport(data);
+        elements.lastUpdated.textContent = "· atualizado " + formatTime(new Date());
+
+        if (options.showFeedback) {
+          setRefreshState("Atualizado", false);
+          setTimeout(() => setRefreshState("Atualizar", false), 1200);
+        }
+      } catch (error) {
+        elements.report.innerHTML = '<div class="error">' + escapeHtml(error.message) + '</div>';
+
+        if (options.showFeedback) {
+          setRefreshState("Erro", false);
+          setTimeout(() => setRefreshState("Atualizar", false), 1600);
+        }
+      }
+    }
+
+    function renderReport(report) {
+      const totals = report.totals || {};
+      elements.metrics.innerHTML = [
+        metric("Leads totais", totals.contacts ?? 0),
+        metric("Novos em 14 dias", totals.newContacts ?? 0),
+        metric("Follow-up", totals.followUp ?? 0),
+        metric("Handoff", totals.handoff ?? 0),
+      ].join("");
+
+      elements.report.innerHTML = [
+        '<div class="report-head">',
+        '<div><h2>Relatório gerencial</h2><div class="muted">Resumo dos últimos ' + escapeHtml(report.period && report.period.days ? report.period.days : 14) + ' dias.</div></div>',
+        '<span class="badge active">Operacional</span>',
+        '</div>',
+        '<div class="report-grid">',
+        reportSection("Gargalos", renderBars(report.byGargalo || [])),
+        reportSection("Classificação", renderBars(report.byClassification || [])),
+        reportSection("Rotas", renderBars(report.byRoute || [])),
+        reportSection("Leads por dia", renderBars((report.leadsByDay || []).map((item) => ({ key: formatDay(item.date), count: item.count })))),
+        reportSection("Eventos comerciais", renderEventSummary(report.events || {})),
+        reportSection("Últimos eventos", renderLatestEvents(report.latestEvents || []), "full"),
+        '</div>',
+      ].join("");
+    }
+
+    function reportSection(title, content, variant) {
+      return '<div class="report-section ' + escapeHtml(variant || "") + '"><h3>' + escapeHtml(title) + '</h3>' + content + '</div>';
+    }
+
+    function renderBars(items) {
+      if (!items.length) return '<div class="muted">Sem dados no período.</div>';
+
+      const max = Math.max(...items.map((item) => Number(item.count) || 0), 1);
+      return '<div class="bar-list">' + items.map((item) => {
+        const count = Number(item.count) || 0;
+        const width = Math.max(4, Math.round((count / max) * 100));
+
+        return [
+          '<div class="bar-row">',
+          '<div class="bar-label">' + escapeHtml(item.key || "-") + '</div>',
+          '<div class="bar-track"><span class="bar-fill" style="width: ' + width + '%"></span></div>',
+          '<strong>' + count + '</strong>',
+          '</div>',
+        ].join("");
+      }).join("") + '</div>';
+    }
+
+    function renderEventSummary(events) {
+      const items = [
+        { key: "Handoffs abertos", count: events.handoffs || 0 },
+        { key: "Handoffs resolvidos", count: events.handoffsResolved || 0 },
+        { key: "Follow-ups agendados", count: events.followUpsScheduled || 0 },
+        { key: "Follow-ups feitos", count: events.followUpsDone || 0 },
+        { key: "Mensagens copiadas", count: events.messagesCopied || 0 },
+        { key: "Mensagens enviadas", count: events.messagesSent || 0 },
+        { key: "Contatos realizados", count: events.contactsDone || 0 },
+      ];
+
+      return renderBars(items);
+    }
+
+    function renderLatestEvents(events) {
+      if (!events.length) return '<div class="muted">Sem eventos recentes.</div>';
+
+      return '<div class="report-events">' + events.map((event) => {
+        const contact = event.contact || {};
+        const leadLabel = contact.name || contact.email || contact.phone || contact.id || "Lead sem identificação";
+        const note = event.note ? '<div class="muted">' + escapeHtml(event.note) + '</div>' : "";
+
+        return [
+          '<div class="report-event">',
+          '<div class="muted">' + formatDate(event.createdAt) + '</div>',
+          '<div><strong>' + escapeHtml(event.eventType) + '</strong><div>' + escapeHtml(leadLabel) + '</div>' + note + '</div>',
+          '</div>',
+        ].join("");
+      }).join("") + '</div>';
     }
 
     function getLeadsUrl() {
@@ -885,6 +1143,14 @@ export function renderCrmPage() {
         hour: "2-digit",
         minute: "2-digit",
       }).format(new Date(value));
+    }
+
+    function formatDay(value) {
+      if (!value) return "-";
+      return new Intl.DateTimeFormat("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+      }).format(new Date(value + "T00:00:00"));
     }
 
     function formatTime(value) {
