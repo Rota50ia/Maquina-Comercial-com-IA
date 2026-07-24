@@ -40,6 +40,8 @@ export type LeadActionInput = {
 
 export type CrmReportFilters = {
   days?: number;
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 export type SendWhatsAppMessageInput = {
@@ -82,6 +84,8 @@ const IN_PROGRESS_HANDOFF_ROUTE = "rota:atendimento-iniciado";
 const RESOLVED_HANDOFF_ROUTE = "rota:handoff-resolvido";
 const HANDOFF_SLA_WARNING_HOURS = 2;
 const HANDOFF_SLA_OVERDUE_HOURS = 6;
+const REPORT_TIME_ZONE = "America/Sao_Paulo";
+const REPORT_TIME_ZONE_OFFSET = "-03:00";
 const FOLLOWUP_SCHEDULED_EVENT = "crm_followup_agendado";
 const FOLLOWUP_DONE_EVENT = "crm_followup_realizado";
 const CONTACT_UPDATED_EVENT = "crm_contato_atualizado";
@@ -670,8 +674,7 @@ export async function sendLeadWhatsAppMessage(contactId: string, input: SendWhat
 }
 
 export async function getCrmReport(filters: CrmReportFilters) {
-  const days = filters.days ?? 14;
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const period = resolveReportPeriod(filters);
 
   const [totalContacts, contacts, recentContacts, recentEvents] = await prisma.$transaction([
     prisma.contact.count({
@@ -734,7 +737,8 @@ export async function getCrmReport(filters: CrmReportFilters) {
       where: {
         deletedAt: null,
         createdAt: {
-          gte: since,
+          gte: period.since,
+          lte: period.until,
         },
       },
       select: {
@@ -744,7 +748,8 @@ export async function getCrmReport(filters: CrmReportFilters) {
     prisma.eventLog.findMany({
       where: {
         createdAt: {
-          gte: since,
+          gte: period.since,
+          lte: period.until,
         },
       },
       orderBy: { createdAt: "desc" },
@@ -791,8 +796,11 @@ export async function getCrmReport(filters: CrmReportFilters) {
     ok: true,
     generatedAt: new Date().toISOString(),
     period: {
-      days,
-      since: since.toISOString(),
+      days: period.days,
+      since: period.since.toISOString(),
+      until: period.until.toISOString(),
+      dateFrom: period.dateFrom,
+      dateTo: period.dateTo,
     },
     totals: {
       contacts: totalContacts,
@@ -820,6 +828,46 @@ export async function getCrmReport(filters: CrmReportFilters) {
     oldestOpenHandoffs: getOldestOpenHandoffs(leadItems),
     latestResolvedHandoffs: getLatestResolvedHandoffs(leadItems),
   };
+}
+
+function resolveReportPeriod(filters: CrmReportFilters) {
+  if (filters.dateFrom && filters.dateTo) {
+    const since = new Date(`${filters.dateFrom}T00:00:00.000${REPORT_TIME_ZONE_OFFSET}`);
+    const until = new Date(`${filters.dateTo}T23:59:59.999${REPORT_TIME_ZONE_OFFSET}`);
+    const days = Math.max(1, Math.ceil((until.getTime() - since.getTime()) / (24 * 60 * 60 * 1000)));
+
+    return {
+      days,
+      since,
+      until,
+      dateFrom: filters.dateFrom,
+      dateTo: filters.dateTo,
+    };
+  }
+
+  const days = filters.days ?? 14;
+  const until = new Date();
+  const since = new Date(until.getTime() - days * 24 * 60 * 60 * 1000);
+
+  return {
+    days,
+    since,
+    until,
+    dateFrom: formatReportDateInput(since),
+    dateTo: formatReportDateInput(until),
+  };
+}
+
+function formatReportDateInput(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: REPORT_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const partByType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return `${partByType.year}-${partByType.month}-${partByType.day}`;
 }
 
 function getStatusForAction(action: LeadActionInput["action"]) {

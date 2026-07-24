@@ -27,9 +27,34 @@ const leadListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(250).default(100),
 });
 
-const reportQuerySchema = z.object({
-  days: z.coerce.number().int().min(1).max(90).default(14),
-});
+const reportDateSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use o formato AAAA-MM-DD.")
+  .refine(isValidReportDate, "Informe uma data válida.");
+const reportQuerySchema = z
+  .object({
+    days: z.coerce.number().int().min(1).max(90).optional(),
+    dateFrom: reportDateSchema.optional(),
+    dateTo: reportDateSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if ((value.dateFrom && !value.dateTo) || (!value.dateFrom && value.dateTo)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["dateTo"],
+        message: "Informe data inicial e data final.",
+      });
+    }
+
+    if (value.dateFrom && value.dateTo && value.dateFrom > value.dateTo) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["dateFrom"],
+        message: "A data inicial deve ser menor ou igual à data final.",
+      });
+    }
+  });
 
 const messageGuardrailBodySchema = z.object({
   message: z.string().trim().min(1).max(2000),
@@ -38,6 +63,13 @@ const messageGuardrailBodySchema = z.object({
 const sendWhatsAppBodySchema = z.object({
   message: z.string().trim().min(1).max(2000),
 });
+
+function isValidReportDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
 
 const contactUpdateBodySchema = z
   .object({

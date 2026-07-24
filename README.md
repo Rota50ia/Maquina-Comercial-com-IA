@@ -42,7 +42,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - registro de mensagem copiada/enviada no histórico.
 - relatório gerencial simples com distribuição por gargalo, classificação, rota, volume diário e eventos comerciais.
 - funil de atendimento no relatório gerencial.
-- período selecionável no relatório gerencial.
+- período selecionável por intervalo de datas no relatório gerencial.
 - guardrail automático antes de copiar/registrar mensagem no CRM.
 - envio controlado de WhatsApp pelo backend via adaptador UAZAPI.
 - recebimento de mensagens WhatsApp por webhook UAZAPI.

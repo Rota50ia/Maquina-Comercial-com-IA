@@ -263,6 +263,25 @@ export function renderCrmPage() {
       grid-column: 1 / -1;
     }
 
+    .report-period-control {
+      display: grid;
+      gap: 7px;
+      min-width: 310px;
+    }
+
+    .report-period-control label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .period-range {
+      display: grid;
+      grid-template-columns: minmax(128px, 1fr) auto minmax(128px, 1fr);
+      align-items: center;
+      gap: 7px;
+    }
+
     .bar-list {
       display: grid;
       gap: 8px;
@@ -509,6 +528,16 @@ export function renderCrmPage() {
         grid-template-columns: 1fr;
       }
 
+      .report-head,
+      .period-range {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+
+      .report-period-control {
+        min-width: 0;
+      }
+
       .message-actions {
         grid-template-columns: 1fr;
       }
@@ -602,7 +631,8 @@ export function renderCrmPage() {
       selectedId: null,
       view: "all",
       report: null,
-      reportDays: 14,
+      reportDateFrom: getDateInputValue(addDays(new Date(), -13)),
+      reportDateTo: getDateInputValue(new Date()),
     };
 
     const elements = {
@@ -809,7 +839,7 @@ export function renderCrmPage() {
       elements.report.innerHTML = '<div class="empty">Carregando relatório...</div>';
 
       try {
-        const response = await fetch("/internal/reports/summary?days=" + encodeURIComponent(state.reportDays), { credentials: "same-origin" });
+        const response = await fetch(getReportUrl(), { credentials: "same-origin" });
         if (!response.ok) throw new Error("Falha ao carregar relatório.");
 
         const data = await response.json();
@@ -833,7 +863,9 @@ export function renderCrmPage() {
 
     function renderReport(report) {
       const totals = report.totals || {};
-      const periodDays = report.period && report.period.days ? report.period.days : state.reportDays;
+      const period = report.period || {};
+      const dateFrom = period.dateFrom || state.reportDateFrom;
+      const dateTo = period.dateTo || state.reportDateTo;
       elements.metrics.innerHTML = [
         metric("Leads totais", totals.contacts ?? 0),
         metric("Novos no período", totals.newContacts ?? 0),
@@ -844,9 +876,14 @@ export function renderCrmPage() {
 
       elements.report.innerHTML = [
         '<div class="report-head">',
-        '<div><h2>Relatório gerencial</h2><div class="muted">Resumo dos últimos ' + escapeHtml(periodDays) + ' dias.</div></div>',
-        '<div style="display: grid; gap: 8px; min-width: 180px">',
-        '<select id="reportDaysSelect" aria-label="Período do relatório">' + renderReportDaysOptions(periodDays) + '</select>',
+        '<div><h2>Relatório gerencial</h2><div class="muted">Resumo de ' + escapeHtml(formatInputDate(dateFrom)) + ' a ' + escapeHtml(formatInputDate(dateTo)) + '.</div></div>',
+        '<div class="report-period-control">',
+        '<label for="reportDateFrom">Período</label>',
+        '<div class="period-range">',
+        '<input id="reportDateFrom" type="date" value="' + escapeHtml(dateFrom) + '" aria-label="Data inicial do relatório">',
+        '<span class="muted">→</span>',
+        '<input id="reportDateTo" type="date" value="' + escapeHtml(dateTo) + '" aria-label="Data final do relatório">',
+        '</div>',
         '<span class="badge active">Operacional</span>',
         '</div>',
         '</div>',
@@ -864,23 +901,54 @@ export function renderCrmPage() {
         '</div>',
       ].join("");
 
-      const reportDaysSelect = document.getElementById("reportDaysSelect");
-      if (reportDaysSelect) {
-        reportDaysSelect.addEventListener("change", () => {
-          state.reportDays = Number(reportDaysSelect.value) || 14;
-          loadReport({ showFeedback: true });
-        });
-      }
+      bindReportPeriodInputs();
     }
 
     function reportSection(title, content, variant) {
       return '<div class="report-section ' + escapeHtml(variant || "") + '"><h3>' + escapeHtml(title) + '</h3>' + content + '</div>';
     }
 
-    function renderReportDaysOptions(selectedDays) {
-      return [7, 14, 30, 60, 90].map((days) => (
-        '<option value="' + days + '"' + (Number(selectedDays) === days ? " selected" : "") + '>Últimos ' + days + ' dias</option>'
-      )).join("");
+    function bindReportPeriodInputs() {
+      const dateFromInput = document.getElementById("reportDateFrom");
+      const dateToInput = document.getElementById("reportDateTo");
+      if (!dateFromInput || !dateToInput) return;
+
+      const handleChange = () => {
+        const period = normalizeReportPeriod(dateFromInput.value, dateToInput.value);
+        state.reportDateFrom = period.dateFrom;
+        state.reportDateTo = period.dateTo;
+        dateFromInput.value = period.dateFrom;
+        dateToInput.value = period.dateTo;
+        loadReport({ showFeedback: true });
+      };
+
+      dateFromInput.addEventListener("change", handleChange);
+      dateToInput.addEventListener("change", handleChange);
+    }
+
+    function getReportUrl() {
+      const params = new URLSearchParams({
+        dateFrom: state.reportDateFrom,
+        dateTo: state.reportDateTo,
+      });
+
+      return "/internal/reports/summary?" + params.toString();
+    }
+
+    function normalizeReportPeriod(dateFrom, dateTo) {
+      let normalizedFrom = dateFrom || state.reportDateFrom || getDateInputValue(addDays(new Date(), -13));
+      let normalizedTo = dateTo || state.reportDateTo || getDateInputValue(new Date());
+
+      if (normalizedFrom > normalizedTo) {
+        const currentFrom = normalizedFrom;
+        normalizedFrom = normalizedTo;
+        normalizedTo = currentFrom;
+      }
+
+      return {
+        dateFrom: normalizedFrom,
+        dateTo: normalizedTo,
+      };
     }
 
     function renderAttendanceFunnel(funnel) {
@@ -1365,6 +1433,30 @@ export function renderCrmPage() {
         day: "2-digit",
         month: "2-digit",
       }).format(new Date(value + "T00:00:00"));
+    }
+
+    function formatInputDate(value) {
+      if (!value) return "-";
+      return new Intl.DateTimeFormat("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      }).format(new Date(value + "T00:00:00"));
+    }
+
+    function addDays(date, days) {
+      const result = new Date(date);
+      result.setDate(result.getDate() + days);
+
+      return result;
+    }
+
+    function getDateInputValue(date) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+
+      return year + "-" + month + "-" + day;
     }
 
     function formatTime(value) {
