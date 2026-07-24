@@ -6,13 +6,16 @@ import { applyTags, getQuizTags } from "../tagging/tagging.service.js";
 import type { QuizWebhookInput } from "./schemas.js";
 
 export async function processQuizSubmission(payload: QuizWebhookInput) {
+  const source = payload.source ?? payload.origem;
+  const pageUrl = payload.page_url ?? payload.page;
+
   const contact = await findOrCreateContact({
     name: payload.nome,
     email: payload.email,
     phone: payload.whatsapp,
     instagramHandle: payload.instagram,
     preferredChannel: payload.whatsapp ? "whatsapp" : payload.email ? "email" : "instagram",
-    consentSource: payload.origem,
+    consentSource: source,
   });
 
   const score = calculateQuizLeadScore(payload);
@@ -31,8 +34,8 @@ export async function processQuizSubmission(payload: QuizWebhookInput) {
     await tx.quizSubmission.create({
       data: {
         contactId: contact.id,
-        source: payload.origem,
-        pageUrl: payload.page,
+        source,
+        pageUrl,
         gargalo: payload.gargalo,
         resultTitle: payload.resultado,
         secondCategory: payload.segunda_categoria,
@@ -68,6 +71,7 @@ export async function processQuizSubmission(payload: QuizWebhookInput) {
         eventType: "raio_x_lead_capturado",
         payload: {
           origem: payload.origem,
+          source,
           gargalo: payload.gargalo,
           route: route.route,
           score: score.score,
@@ -85,4 +89,3 @@ export async function processQuizSubmission(payload: QuizWebhookInput) {
     route,
   };
 }
-

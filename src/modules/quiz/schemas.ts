@@ -6,6 +6,7 @@ const scoreKeySchema = z.enum([
   "vsl",
   "pagina",
   "oferta",
+  "campanha",
   "checkout",
   "followup",
   "politica",
@@ -26,13 +27,15 @@ export const quizWebhookSchema = z.object({
   instagram: z.string().trim().optional(),
   gargalo: scoreKeySchema,
   resultado: z.string().trim().min(1),
+  source: z.string().trim().optional(),
   origem: z.string().trim().default("raio_x_anti_algoritmo"),
+  page_url: z.string().trim().optional(),
   page: z.string().trim().optional(),
   idioma: z.string().trim().default("pt-BR"),
   quiz_versao: z.string().trim().optional(),
   timestamp: z.string().trim().optional(),
   segunda_categoria: scoreKeySchema.optional(),
-  scores: z.record(scoreKeySchema, z.number().int().nonnegative()).optional(),
+  scores: z.partialRecord(scoreKeySchema, z.number().int().nonnegative()).optional(),
   respostas: z.array(quizAnswerSchema).optional(),
   acoes_recomendadas: z.array(z.string()).optional(),
   cta_resultado: z.string().optional(),
@@ -53,4 +56,3 @@ export const quizWebhookSchema = z.object({
 });
 
 export type QuizWebhookInput = z.infer<typeof quizWebhookSchema>;
-

@@ -19,7 +19,7 @@ export function decideQuizRoute(
     };
   }
 
-  if (["oferta", "checkout", "followup", "promessa", "criativo", "vsl", "pagina"].includes(payload.gargalo)) {
+  if (["oferta", "campanha", "checkout", "followup", "promessa", "criativo", "vsl", "pagina"].includes(payload.gargalo)) {
     return {
       route: "rota:nutrir-campanhas-2026",
       reason: `gargalo ${payload.gargalo} conectado ao produto Campanhas 2026`,
@@ -41,4 +41,3 @@ export function decideQuizRoute(
     handoffRequired: false,
   };
 }
-
