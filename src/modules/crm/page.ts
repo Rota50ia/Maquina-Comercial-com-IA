@@ -306,6 +306,19 @@ export function renderCrmPage() {
       color: var(--accent);
     }
 
+    .report-export {
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--ink);
+      color: #fff;
+      padding: 0 10px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 750;
+      cursor: pointer;
+    }
+
     .bar-list {
       display: grid;
       gap: 8px;
@@ -913,6 +926,7 @@ export function renderCrmPage() {
         renderPeriodPresetButton("7", "7 dias", dateFrom, dateTo),
         renderPeriodPresetButton("30", "30 dias", dateFrom, dateTo),
         '</div>',
+        '<button class="report-export" id="exportReportCsv" type="button">Exportar CSV</button>',
         '<span class="badge active">Operacional</span>',
         '</div>',
         '</div>',
@@ -931,6 +945,7 @@ export function renderCrmPage() {
       ].join("");
 
       bindReportPeriodInputs();
+      bindReportExport();
     }
 
     function reportSection(title, content, variant) {
@@ -1013,6 +1028,138 @@ export function renderCrmPage() {
         dateFrom: normalizedFrom,
         dateTo: normalizedTo,
       };
+    }
+
+    function bindReportExport() {
+      const button = document.getElementById("exportReportCsv");
+      if (!button) return;
+
+      button.addEventListener("click", () => exportReportCsv(state.report));
+    }
+
+    function exportReportCsv(report) {
+      if (!report) return;
+
+      const period = report.period || {};
+      const dateFrom = period.dateFrom || state.reportDateFrom;
+      const dateTo = period.dateTo || state.reportDateTo;
+      const rows = getReportCsvRows(report, dateFrom, dateTo);
+      const csv = rows.map((row) => row.map(escapeCsvCell).join(";")).join("\\n");
+      const blob = new Blob(["\\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = "relatorio-crm-" + dateFrom + "-a-" + dateTo + ".csv";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    function getReportCsvRows(report, dateFrom, dateTo) {
+      const rows = [
+        ["Seção", "Indicador", "Valor", "Período inicial", "Período final", "Detalhe"],
+      ];
+      const totals = report.totals || {};
+      const funnel = report.funnel || {};
+      const sla = report.sla || {};
+
+      addCsvMetricRows(rows, "Totais", [
+        ["Leads totais", totals.contacts ?? 0],
+        ["Novos no período", totals.newContacts ?? 0],
+        ["Ativos", totals.active ?? 0],
+        ["Opt-out", totals.optOut ?? 0],
+        ["Handoff", totals.handoff ?? 0],
+        ["Em atendimento", totals.inProgress ?? 0],
+        ["Resolvidos", totals.resolved ?? 0],
+        ["Follow-up", totals.followUp ?? 0],
+      ], dateFrom, dateTo);
+      addCsvMetricRows(rows, "Funil de atendimento", [
+        ["Fila handoff", funnel.handoff ?? 0],
+        ["Em atendimento", funnel.inProgress ?? 0],
+        ["Resolvidos", funnel.resolved ?? 0],
+        ["Taxa de resolução", (funnel.resolutionRate ?? 0) + "%"],
+      ], dateFrom, dateTo);
+      addCsvMetricRows(rows, "SLA de handoff", [
+        ["Abertos", sla.open ?? 0],
+        ["Atenção", sla.attention ?? 0],
+        ["Atrasados", sla.overdue ?? 0],
+        ["Atenção a partir de", (sla.warningHours ?? 2) + "h"],
+        ["Atrasado a partir de", (sla.overdueHours ?? 6) + "h"],
+      ], dateFrom, dateTo);
+      addCsvCountRows(rows, "Gargalos", report.byGargalo || [], dateFrom, dateTo);
+      addCsvCountRows(rows, "Classificação", report.byClassification || [], dateFrom, dateTo);
+      addCsvCountRows(rows, "Rotas", report.byRoute || [], dateFrom, dateTo);
+      addCsvCountRows(rows, "Leads por dia", (report.leadsByDay || []).map((item) => ({ key: item.date, count: item.count })), dateFrom, dateTo);
+      addCsvMetricRows(rows, "Eventos comerciais", getEventCsvItems(report.events || {}), dateFrom, dateTo);
+      addCsvLeadRows(rows, "Handoffs abertos mais antigos", report.oldestOpenHandoffs || [], dateFrom, dateTo);
+      addCsvLeadRows(rows, "Últimos resolvidos", report.latestResolvedHandoffs || [], dateFrom, dateTo);
+      addCsvLatestEventRows(rows, report.latestEvents || [], dateFrom, dateTo);
+
+      return rows;
+    }
+
+    function addCsvMetricRows(rows, sectionName, items, dateFrom, dateTo) {
+      for (const item of items) {
+        rows.push([sectionName, item[0], item[1], dateFrom, dateTo, ""]);
+      }
+    }
+
+    function addCsvCountRows(rows, sectionName, items, dateFrom, dateTo) {
+      for (const item of items) {
+        rows.push([sectionName, item.key || "-", item.count ?? 0, dateFrom, dateTo, ""]);
+      }
+    }
+
+    function addCsvLeadRows(rows, sectionName, leads, dateFrom, dateTo) {
+      for (const lead of leads) {
+        const leadLabel = lead.name || lead.email || lead.phone || lead.id || "Lead sem identificação";
+        const detail = [
+          lead.route ? "Rota: " + lead.route : "",
+          lead.reason ? "Motivo: " + lead.reason : "",
+          lead.gargalo ? "Gargalo: " + lead.gargalo : "",
+          lead.classification ? "Classificação: " + lead.classification : "",
+          lead.score !== undefined && lead.score !== null ? "Score: " + lead.score : "",
+          lead.ageHours !== undefined ? "Aberto há: " + formatAgeHours(lead.ageHours) : "",
+          lead.slaStatus ? "SLA: " + slaStatusLabel(lead.slaStatus) : "",
+        ].filter(Boolean).join(" | ");
+
+        rows.push([sectionName, leadLabel, lead.since ? formatDate(lead.since) : "-", dateFrom, dateTo, detail]);
+      }
+    }
+
+    function addCsvLatestEventRows(rows, events, dateFrom, dateTo) {
+      for (const event of events) {
+        const contact = event.contact || {};
+        const leadLabel = contact.name || contact.email || contact.phone || contact.id || "Lead sem identificação";
+
+        rows.push(["Últimos eventos", event.eventType || "-", formatDate(event.createdAt), dateFrom, dateTo, [leadLabel, event.note || ""].filter(Boolean).join(" | ")]);
+      }
+    }
+
+    function getEventCsvItems(events) {
+      return [
+        ["Handoffs abertos", events.handoffs || 0],
+        ["Atendimentos iniciados", events.handoffsStarted || 0],
+        ["Handoffs resolvidos", events.handoffsResolved || 0],
+        ["Follow-ups agendados", events.followUpsScheduled || 0],
+        ["Follow-ups feitos", events.followUpsDone || 0],
+        ["Mensagens copiadas", events.messagesCopied || 0],
+        ["Mensagens enviadas", events.messagesSent || 0],
+        ["WhatsApp enviados", events.whatsAppSent || 0],
+        ["WhatsApp recebidos", events.whatsAppReceived || 0],
+        ["Intenções comerciais", events.whatsAppCommercialIntents || 0],
+        ["Falhas WhatsApp", events.whatsAppFailed || 0],
+        ["Contatos realizados", events.contactsDone || 0],
+        ["Contatos atualizados", events.contactUpdates || 0],
+      ];
+    }
+
+    function escapeCsvCell(value) {
+      const text = String(value ?? "");
+
+      return '"' + text.replace(/"/g, '""') + '"';
     }
 
     function renderAttendanceFunnel(funnel) {
