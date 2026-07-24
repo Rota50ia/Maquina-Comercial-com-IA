@@ -34,6 +34,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - fila de handoff humano.
 - marcação de atendimento iniciado para handoff humano.
 - fila de atendimentos em andamento.
+- visão de handoffs resolvidos.
 - resumo para atendimento humano no detalhe do lead.
 - agenda/fila de follow-up.
 - sugestão segura de mensagem por gargalo/rota.
@@ -92,6 +93,7 @@ ações manuais
 fila de handoff
 marcação de atendimento iniciado
 fila de atendimentos em andamento
+visão de handoffs resolvidos
 resumo para atendimento humano
 agenda/fila de follow-up
 sugestão segura de mensagem
