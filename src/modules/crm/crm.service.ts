@@ -1,4 +1,4 @@
-import type { ContactStatus, LeadClassification, Prisma } from "@prisma/client";
+import { Prisma, type ContactStatus, type LeadClassification } from "@prisma/client";
 import {
   sendUazapiTextMessage,
   UazapiConfigurationError,
@@ -43,6 +43,12 @@ export type SendWhatsAppMessageInput = {
   message: string;
 };
 
+export type UpdateLeadContactInput = {
+  name?: string;
+  email?: string;
+  phone?: string;
+};
+
 type LeadSummaryItem = {
   latestScore: {
     classification: string;
@@ -64,8 +70,10 @@ const HUMAN_HANDOFF_ROUTE = "rota:chamar-humano";
 const RESOLVED_HANDOFF_ROUTE = "rota:handoff-resolvido";
 const FOLLOWUP_SCHEDULED_EVENT = "crm_followup_agendado";
 const FOLLOWUP_DONE_EVENT = "crm_followup_realizado";
+const CONTACT_UPDATED_EVENT = "crm_contato_atualizado";
 const COMMERCIAL_EVENT_TYPES = [
   "raio_x_lead_capturado",
+  CONTACT_UPDATED_EVENT,
   "crm_marcar_para_contato",
   "crm_contato_realizado",
   "crm_handoff_humano",
@@ -357,6 +365,161 @@ export async function applyLeadAction(contactId: string, input: LeadActionInput)
       },
     });
   });
+
+  return getLeadDetail(contactId);
+}
+
+export async function updateLeadContact(contactId: string, input: UpdateLeadContactInput) {
+  const contact = await prisma.contact.findUnique({
+    where: { id: contactId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      preferredChannel: true,
+    },
+  });
+
+  if (!contact) return null;
+
+  const data: Prisma.ContactUpdateInput = {};
+  const changes: Record<string, { before: string | null; after: string | null }> = {};
+  const nextPhone = hasOwn(input, "phone") ? normalizeEditableWhatsApp(input.phone) : undefined;
+
+  if (nextPhone === false) {
+    return {
+      ok: false,
+      error: "invalid_phone",
+      field: "phone",
+      message: "Informe um WhatsApp válido com DDI e DDD.",
+      detail: await getLeadDetail(contactId),
+    };
+  }
+
+  if (hasOwn(input, "name")) {
+    const nextName = normalizeOptionalText(input.name);
+
+    if ((contact.name ?? null) !== nextName) {
+      data.name = nextName;
+      changes.name = {
+        before: contact.name ?? null,
+        after: nextName,
+      };
+    }
+  }
+
+  if (hasOwn(input, "email")) {
+    const nextEmail = normalizeEditableEmail(input.email);
+
+    if (nextEmail) {
+      const duplicate = await prisma.contact.findFirst({
+        where: {
+          id: { not: contactId },
+          email: nextEmail,
+        },
+        select: { id: true },
+      });
+
+      if (duplicate) {
+        return {
+          ok: false,
+          error: "duplicate_contact",
+          field: "email",
+          message: "Já existe outro lead com este e-mail.",
+          detail: await getLeadDetail(contactId),
+        };
+      }
+    }
+
+    if ((contact.email ?? null) !== nextEmail) {
+      data.email = nextEmail;
+      changes.email = {
+        before: contact.email ?? null,
+        after: nextEmail,
+      };
+    }
+  }
+
+  if (nextPhone !== undefined) {
+    if (nextPhone) {
+      const duplicate = await prisma.contact.findFirst({
+        where: {
+          id: { not: contactId },
+          phone: nextPhone,
+        },
+        select: { id: true },
+      });
+
+      if (duplicate) {
+        return {
+          ok: false,
+          error: "duplicate_contact",
+          field: "phone",
+          message: "Já existe outro lead com este WhatsApp.",
+          detail: await getLeadDetail(contactId),
+        };
+      }
+    }
+
+    if ((contact.phone ?? null) !== nextPhone) {
+      data.phone = nextPhone;
+      changes.phone = {
+        before: contact.phone ?? null,
+        after: nextPhone,
+      };
+    }
+
+    if (nextPhone && contact.preferredChannel !== "whatsapp") {
+      data.preferredChannel = "whatsapp";
+      changes.preferredChannel = {
+        before: contact.preferredChannel ?? null,
+        after: "whatsapp",
+      };
+    }
+  }
+
+  if (!Object.keys(changes).length) {
+    return getLeadDetail(contactId);
+  }
+
+  try {
+    await prisma.$transaction([
+      prisma.contact.update({
+        where: { id: contactId },
+        data,
+      }),
+      prisma.eventLog.create({
+        data: {
+          contactId,
+          eventType: CONTACT_UPDATED_EVENT,
+          payload: compactJson({
+            action: "atualizar_contato",
+            note: "Contato atualizado manualmente no CRM",
+            source: "crm",
+            changes,
+          }) as Prisma.InputJsonValue,
+        },
+      }),
+    ]);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const field = getUniqueConstraintField(error.meta?.target);
+
+      return {
+        ok: false,
+        error: "duplicate_contact",
+        field,
+        message:
+          field === "phone"
+            ? "Já existe outro lead com este WhatsApp."
+            : "Já existe outro lead com este e-mail.",
+        detail: await getLeadDetail(contactId),
+      };
+    }
+
+    throw error;
+  }
 
   return getLeadDetail(contactId);
 }
@@ -712,6 +875,7 @@ function summarizeCommercialEvents(events: Array<{ eventType: string }>) {
     whatsAppSent: relevantEvents.filter((event) => event.eventType === "crm_whatsapp_enviado").length,
     whatsAppFailed: relevantEvents.filter((event) => event.eventType === "crm_whatsapp_envio_falhou").length,
     contactsDone: relevantEvents.filter((event) => event.eventType === "crm_contato_realizado").length,
+    contactUpdates: relevantEvents.filter((event) => event.eventType === CONTACT_UPDATED_EVENT).length,
   };
 }
 
@@ -753,6 +917,37 @@ function extractStringFromJson(value: Prisma.JsonValue, key: string) {
 
 function normalizeWhatsAppNumber(phone: string) {
   return phone.replace(/\D/g, "");
+}
+
+function normalizeEditableEmail(email?: string) {
+  return normalizeOptionalText(email)?.toLowerCase() ?? null;
+}
+
+function normalizeEditableWhatsApp(phone?: string) {
+  const rawValue = normalizeOptionalText(phone);
+  if (!rawValue) return null;
+
+  const digits = rawValue.replace(/\D/g, "");
+  if (digits.length < 10 || digits.length > 15) return false;
+
+  return digits;
+}
+
+function normalizeOptionalText(value?: string) {
+  const text = value?.trim();
+
+  return text ? text : null;
+}
+
+function hasOwn<T extends object>(value: T, key: PropertyKey) {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function getUniqueConstraintField(target: unknown): "email" | "phone" {
+  if (Array.isArray(target) && target.includes("phone")) return "phone";
+  if (typeof target === "string" && target.includes("phone")) return "phone";
+
+  return "email";
 }
 
 function getWhatsAppSendFailureCode(error: unknown) {

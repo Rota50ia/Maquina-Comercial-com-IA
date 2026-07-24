@@ -29,6 +29,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - dashboard/CRM interno em `GET /crm`.
 - busca e filtros de leads.
 - painel de detalhe com diagnóstico, score, rota, tags e eventos.
+- edição de nome, e-mail e WhatsApp do lead no CRM.
 - ações manuais no CRM.
 - fila de handoff humano.
 - agenda/fila de follow-up.
@@ -46,6 +47,7 @@ POST /webhooks/quiz-raio-x
 GET  /crm
 GET  /internal/leads
 GET  /internal/leads/:contactId
+PATCH /internal/leads/:contactId/contact
 GET  /internal/reports/summary
 POST /internal/messages/guardrail-check
 POST /internal/leads/:contactId/messages/whatsapp
@@ -77,6 +79,7 @@ score e classificação
 rota comercial
 tags
 histórico de eventos
+edição de contato
 ações manuais
 fila de handoff
 agenda/fila de follow-up
@@ -105,6 +108,7 @@ Lead entra pelo quiz
 
 ```text
 crm_marcar_para_contato
+crm_contato_atualizado
 crm_contato_realizado
 crm_handoff_humano
 crm_handoff_resolvido

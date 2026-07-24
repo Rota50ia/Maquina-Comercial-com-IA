@@ -8,6 +8,7 @@ import {
   getLeadDetail,
   listLeads,
   sendLeadWhatsAppMessage,
+  updateLeadContact,
 } from "./crm.service.js";
 import { renderCrmPage } from "./page.js";
 
@@ -35,6 +36,34 @@ const messageGuardrailBodySchema = z.object({
 const sendWhatsAppBodySchema = z.object({
   message: z.string().trim().min(1).max(2000),
 });
+
+const contactUpdateBodySchema = z
+  .object({
+    name: z.string().trim().max(160, "Nome deve ter no máximo 160 caracteres.").optional(),
+    email: z.string().trim().max(254, "E-mail deve ter no máximo 254 caracteres.").optional(),
+    phone: z.string().trim().max(32, "WhatsApp deve ter no máximo 32 caracteres.").optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.email)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["email"],
+        message: "Informe um e-mail válido.",
+      });
+    }
+
+    if (value.phone) {
+      const digits = value.phone.replace(/\D/g, "");
+
+      if (digits.length < 10 || digits.length > 15) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["phone"],
+          message: "Informe um WhatsApp válido com DDI e DDD.",
+        });
+      }
+    }
+  });
 
 const leadActionBodySchema = z
   .object({
@@ -123,6 +152,52 @@ export async function registerCrmRoutes(app: FastifyInstance) {
     }
 
     return detail;
+  });
+
+  app.patch("/internal/leads/:contactId/contact", async (request, reply) => {
+    const authReply = validateDashboardAuth(request, reply);
+    if (authReply) return authReply;
+
+    const paramsResult = z.object({ contactId: z.string().min(1) }).safeParse(request.params);
+    if (!paramsResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: "invalid_params",
+      });
+    }
+
+    const bodyResult = contactUpdateBodySchema.safeParse(request.body);
+    if (!bodyResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: "invalid_payload",
+        issues: bodyResult.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      });
+    }
+
+    const result = await updateLeadContact(paramsResult.data.contactId, bodyResult.data);
+
+    if (!result) {
+      return reply.status(404).send({
+        ok: false,
+        error: "lead_not_found",
+      });
+    }
+
+    if ("error" in result && !result.ok) {
+      const errorCode = typeof result.error === "string" ? result.error : "unknown_error";
+      const statusByError: Record<string, number> = {
+        duplicate_contact: 409,
+        invalid_phone: 400,
+      };
+
+      return reply.status(statusByError[errorCode] ?? 400).send(result);
+    }
+
+    return result;
   });
 
   app.get("/internal/reports/summary", async (request, reply) => {

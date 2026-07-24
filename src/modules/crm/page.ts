@@ -416,6 +416,12 @@ export function renderCrmPage() {
       gap: 8px;
     }
 
+    .field-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
     .kv {
       display: grid;
       grid-template-columns: 118px 1fr;
@@ -876,6 +882,7 @@ export function renderCrmPage() {
         { key: "WhatsApp enviados", count: events.whatsAppSent || 0 },
         { key: "Falhas WhatsApp", count: events.whatsAppFailed || 0 },
         { key: "Contatos realizados", count: events.contactsDone || 0 },
+        { key: "Contatos atualizados", count: events.contactUpdates || 0 },
       ];
 
       return renderBars(items);
@@ -938,6 +945,16 @@ export function renderCrmPage() {
 
       elements.detail.innerHTML = [
         '<div class="detail-head"><h2>' + escapeHtml(lead.name || "Lead sem nome") + '</h2><div class="muted">' + escapeHtml(lead.email || "") + ' ' + escapeHtml(lead.phone || "") + '</div><div style="margin-top: 10px"><span class="badge ' + escapeHtml(lead.status || "") + '">' + escapeHtml(statusLabel(lead.status)) + '</span></div></div>',
+        section("Contato", [
+          '<label class="field-label" for="contactName">Nome</label>',
+          '<input id="contactName" type="text" maxlength="160" autocomplete="name" value="' + escapeHtml(lead.name || "") + '">',
+          '<label class="field-label" for="contactEmail">E-mail</label>',
+          '<input id="contactEmail" type="email" maxlength="254" autocomplete="email" value="' + escapeHtml(lead.email || "") + '">',
+          '<label class="field-label" for="contactPhone">WhatsApp</label>',
+          '<input id="contactPhone" type="tel" maxlength="32" autocomplete="tel" inputmode="tel" placeholder="5511999999999" value="' + escapeHtml(lead.phone || "") + '">',
+          '<button class="action-button primary" type="button" data-contact-save>Salvar contato</button>',
+          '<div class="notice" id="contactState">Use DDI e DDD no WhatsApp antes de enviar mensagem.</div>',
+        ].join("")),
         section("Diagnóstico", [
           kv("Gargalo", latestQuiz.gargalo || "-"),
           kv("Resultado", latestQuiz.resultTitle || "-"),
@@ -990,6 +1007,11 @@ export function renderCrmPage() {
       for (const button of elements.detail.querySelectorAll("[data-message-action]")) {
         button.addEventListener("click", () => performMessageAction(lead.id, button.dataset.messageAction));
       }
+
+      const contactSave = elements.detail.querySelector("[data-contact-save]");
+      if (contactSave) {
+        contactSave.addEventListener("click", () => saveLeadContact(lead.id));
+      }
     }
 
     function actionButton(action, label, variant) {
@@ -1033,6 +1055,45 @@ export function renderCrmPage() {
       } catch (error) {
         actionState.textContent = error.message;
         buttons.forEach((button) => button.disabled = false);
+      }
+    }
+
+    async function saveLeadContact(leadId) {
+      const name = document.getElementById("contactName");
+      const email = document.getElementById("contactEmail");
+      const phone = document.getElementById("contactPhone");
+      const contactState = document.getElementById("contactState");
+      const button = elements.detail.querySelector("[data-contact-save]");
+
+      contactState.textContent = "Salvando contato...";
+      if (button) button.disabled = true;
+
+      try {
+        const response = await fetch("/internal/leads/" + encodeURIComponent(leadId) + "/contact", {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: name ? name.value : "",
+            email: email ? email.value : "",
+            phone: phone ? phone.value : "",
+          }),
+        });
+
+        if (!response.ok) throw new Error(await readActionError(response, "Falha ao salvar contato."));
+
+        const data = await response.json();
+        await loadLeads();
+        state.selectedId = leadId;
+        renderDetail(data.lead);
+
+        const updatedContactState = document.getElementById("contactState");
+        if (updatedContactState) updatedContactState.textContent = "Contato salvo.";
+      } catch (error) {
+        contactState.textContent = error.message;
+        if (button) button.disabled = false;
       }
     }
 
@@ -1145,7 +1206,7 @@ export function renderCrmPage() {
           return data.issues.map((issue) => issue.message).join(" ");
         }
 
-        return data.error || fallback;
+        return data.message || data.error || fallback;
       } catch {
         return fallback;
       }
