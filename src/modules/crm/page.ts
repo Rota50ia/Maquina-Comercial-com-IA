@@ -131,7 +131,7 @@ export function renderCrmPage() {
 
     .view-tabs {
       display: inline-grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       gap: 4px;
       padding: 4px;
       margin-bottom: 12px;
@@ -540,6 +540,7 @@ export function renderCrmPage() {
       <div class="view-tabs" aria-label="Visão do CRM">
         <button class="view-button active" type="button" data-view="all">Todos</button>
         <button class="view-button" type="button" data-view="handoff">Fila handoff</button>
+        <button class="view-button" type="button" data-view="inProgress">Em atendimento</button>
         <button class="view-button" type="button" data-view="followup">Follow-up</button>
         <button class="view-button" type="button" data-view="report">Relatório</button>
       </div>
@@ -720,12 +721,14 @@ export function renderCrmPage() {
       const quente = state.filtered.filter((lead) => lead.latestScore && lead.latestScore.classification === "quente").length;
       const followup = state.filtered.filter(isLeadInFollowUpQueue).length;
       const handoff = state.filtered.filter(isLeadInHandoffQueue).length;
+      const inProgress = state.filtered.filter(isLeadInProgressQueue).length;
 
       elements.metrics.innerHTML = [
         metric("Leads", total),
         metric("Quentes", quente),
-        metric("Follow-up", followup),
         metric("Handoff", handoff),
+        metric("Em atendimento", inProgress),
+        metric("Follow-up", followup),
       ].join("");
     }
 
@@ -766,7 +769,7 @@ export function renderCrmPage() {
     }
 
     function setView(view) {
-      state.view = ["handoff", "followup", "report"].includes(view) ? view : "all";
+      state.view = ["handoff", "inProgress", "followup", "report"].includes(view) ? view : "all";
       state.selectedId = null;
       elements.detail.innerHTML = '<div class="detail-head"><h2>Selecione um lead</h2><div class="muted">O histórico aparecerá aqui.</div></div>';
 
@@ -829,8 +832,8 @@ export function renderCrmPage() {
       elements.metrics.innerHTML = [
         metric("Leads totais", totals.contacts ?? 0),
         metric("Novos em 14 dias", totals.newContacts ?? 0),
-        metric("Follow-up", totals.followUp ?? 0),
         metric("Handoff", totals.handoff ?? 0),
+        metric("Em atendimento", totals.inProgress ?? 0),
       ].join("");
 
       elements.report.innerHTML = [
@@ -910,6 +913,7 @@ export function renderCrmPage() {
 
     function getLeadsUrl() {
       if (state.view === "handoff") return "/internal/leads?handoff=true";
+      if (state.view === "inProgress") return "/internal/leads?inProgress=true";
       if (state.view === "followup") return "/internal/leads?followup=true";
 
       return "/internal/leads";
@@ -1313,6 +1317,12 @@ export function renderCrmPage() {
       if (latestRoute === "rota:handoff-resolvido") return false;
 
       return latestRoute === "rota:chamar-humano" || classification === "prioridade";
+    }
+
+    function isLeadInProgressQueue(lead) {
+      const latestRoute = lead.latestRoute && lead.latestRoute.route;
+
+      return lead.status !== "optout" && latestRoute === "rota:atendimento-iniciado";
     }
 
     function isLeadInFollowUpQueue(lead) {

@@ -21,6 +21,7 @@ const leadListQuerySchema = z.object({
   route: z.string().trim().min(1).optional(),
   status: contactStatusSchema.optional(),
   handoff: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
+  inProgress: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
   followup: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
   limit: z.coerce.number().int().min(1).max(250).default(100),
 });

@@ -13,6 +13,7 @@ export type LeadListFilters = {
   route?: string;
   status?: ContactStatus;
   handoff?: boolean;
+  inProgress?: boolean;
   followup?: boolean;
   limit?: number;
 };
@@ -131,7 +132,7 @@ export async function listLeads(filters: LeadListFilters) {
   const contacts = await prisma.contact.findMany({
     where,
     orderBy: { updatedAt: "desc" },
-    take: filters.handoff || filters.followup ? 250 : (filters.limit ?? 100),
+    take: filters.handoff || filters.inProgress || filters.followup ? 250 : (filters.limit ?? 100),
     select: {
       id: true,
       name: true,
@@ -211,6 +212,7 @@ export async function listLeads(filters: LeadListFilters) {
   }));
   const visibleLeads = leads.filter((lead) => {
     if (filters.handoff && !isLeadInHandoffQueue(lead)) return false;
+    if (filters.inProgress && !isLeadInProgressQueue(lead)) return false;
     if (filters.followup && !isLeadInFollowUpQueue(lead)) return false;
 
     return true;
@@ -754,6 +756,7 @@ export async function getCrmReport(filters: CrmReportFilters) {
   }));
 
   const handoffCount = leadItems.filter(isLeadInHandoffQueue).length;
+  const inProgressCount = leadItems.filter(isLeadInProgressQueue).length;
   const followUpCount = leadItems.filter(isLeadInFollowUpQueue).length;
   const activeCount = contacts.filter((contact) => contact.status === "active").length;
   const optOutCount = contacts.filter((contact) => contact.status === "optout").length;
@@ -771,6 +774,7 @@ export async function getCrmReport(filters: CrmReportFilters) {
       optOut: optOutCount,
       newContacts: recentContacts.length,
       handoff: handoffCount,
+      inProgress: inProgressCount,
       followUp: followUpCount,
     },
     byGargalo: countBy(leadItems, (lead) => lead.latestQuizSubmission?.gargalo ?? "sem_gargalo"),
@@ -825,6 +829,10 @@ function isLeadInHandoffQueue(lead: LeadSummaryItem) {
   if (lead.latestRoute?.route === RESOLVED_HANDOFF_ROUTE) return false;
 
   return lead.latestRoute?.route === HUMAN_HANDOFF_ROUTE || lead.latestScore?.classification === "prioridade";
+}
+
+function isLeadInProgressQueue(lead: LeadSummaryItem) {
+  return lead.status !== "optout" && lead.latestRoute?.route === IN_PROGRESS_HANDOFF_ROUTE;
 }
 
 function isLeadInFollowUpQueue(lead: LeadSummaryItem) {
