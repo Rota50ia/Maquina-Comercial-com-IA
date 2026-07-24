@@ -39,6 +39,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - guardrail automático antes de copiar/registrar mensagem no CRM.
 - envio controlado de WhatsApp pelo backend via adaptador UAZAPI.
 - recebimento de mensagens WhatsApp por webhook UAZAPI.
+- detecção de intenção comercial em mensagens recebidas pelo WhatsApp.
 
 ## Rotas principais
 
@@ -93,6 +94,7 @@ relatório gerencial simples
 guardrail automático de mensagens
 envio controlado de WhatsApp via backend/UAZAPI
 recebimento de mensagens WhatsApp via webhook UAZAPI
+detecção de preço, call, compra ou interesse em mensagens recebidas
 ```
 
 Fluxo operacional recomendado:
@@ -125,6 +127,7 @@ crm_mensagem_bloqueada
 crm_whatsapp_enviado
 crm_whatsapp_envio_falhou
 whatsapp_mensagem_recebida
+whatsapp_intencao_comercial_detectada
 uazapi_mensagem_ignorada
 crm_lead_pausado
 crm_lead_reativado

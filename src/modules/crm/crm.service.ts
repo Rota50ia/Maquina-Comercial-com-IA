@@ -86,6 +86,7 @@ const COMMERCIAL_EVENT_TYPES = [
   "crm_whatsapp_enviado",
   "crm_whatsapp_envio_falhou",
   "whatsapp_mensagem_recebida",
+  "whatsapp_intencao_comercial_detectada",
   "crm_lead_pausado",
   "crm_lead_reativado",
   "crm_lead_optout",
@@ -876,6 +877,9 @@ function summarizeCommercialEvents(events: Array<{ eventType: string }>) {
     whatsAppSent: relevantEvents.filter((event) => event.eventType === "crm_whatsapp_enviado").length,
     whatsAppFailed: relevantEvents.filter((event) => event.eventType === "crm_whatsapp_envio_falhou").length,
     whatsAppReceived: relevantEvents.filter((event) => event.eventType === "whatsapp_mensagem_recebida").length,
+    whatsAppCommercialIntents: relevantEvents.filter(
+      (event) => event.eventType === "whatsapp_intencao_comercial_detectada",
+    ).length,
     contactsDone: relevantEvents.filter((event) => event.eventType === "crm_contato_realizado").length,
     contactUpdates: relevantEvents.filter((event) => event.eventType === CONTACT_UPDATED_EVENT).length,
   };

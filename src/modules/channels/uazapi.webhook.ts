@@ -24,7 +24,9 @@ type InboundMessage = {
 };
 
 const RECEIVED_MESSAGE_EVENT = "whatsapp_mensagem_recebida";
+const COMMERCIAL_INTENT_EVENT = "whatsapp_intencao_comercial_detectada";
 const IGNORED_MESSAGE_EVENT = "uazapi_mensagem_ignorada";
+const HUMAN_HANDOFF_ROUTE = "rota:chamar-humano";
 
 export async function registerUazapiWebhookRoutes(app: FastifyInstance) {
   app.post("/webhooks/uazapi", handleUazapiWebhook);
@@ -96,6 +98,12 @@ async function processUazapiWebhook(payload: unknown, route: UazapiWebhookParams
         }) as Prisma.InputJsonValue,
       },
     });
+
+    const commercialIntent = detectCommercialIntent(message.text);
+    if (commercialIntent) {
+      await registerCommercialIntent(contact.id, message, commercialIntent);
+    }
+
     received += 1;
   }
 
@@ -103,6 +111,44 @@ async function processUazapiWebhook(payload: unknown, route: UazapiWebhookParams
     received,
     ignored,
   };
+}
+
+async function registerCommercialIntent(
+  contactId: string,
+  message: InboundMessage,
+  intent: CommercialIntentDetection,
+) {
+  await prisma.$transaction([
+    prisma.contact.update({
+      where: { id: contactId },
+      data: { updatedAt: new Date() },
+    }),
+    prisma.routeDecision.create({
+      data: {
+        contactId,
+        route: HUMAN_HANDOFF_ROUTE,
+        reason: `intenção comercial detectada no WhatsApp: ${intent.kind}`,
+      },
+    }),
+    prisma.eventLog.create({
+      data: {
+        contactId,
+        eventType: COMMERCIAL_INTENT_EVENT,
+        payload: compactJson({
+          source: "uazapi",
+          channel: "whatsapp",
+          action: "acionar_handoff_humano",
+          note: getCommercialIntentNote(intent.kind),
+          intent: intent.kind,
+          matchedTerm: intent.matchedTerm,
+          route: HUMAN_HANDOFF_ROUTE,
+          message: message.text,
+          messageId: message.messageId,
+          phone: message.phone,
+        }) as Prisma.InputJsonValue,
+      },
+    }),
+  ]);
 }
 
 function extractInboundMessages(payload: Record<string, unknown>, route: UazapiWebhookParams): InboundMessage[] {
@@ -182,6 +228,117 @@ function getMessageCandidates(payload: Record<string, unknown>) {
   ].filter(isRecord);
 
   return candidates;
+}
+
+type CommercialIntentKind = "preco" | "call" | "compra" | "interesse";
+
+type CommercialIntentDetection = {
+  kind: CommercialIntentKind;
+  matchedTerm: string;
+};
+
+const COMMERCIAL_INTENT_PATTERNS: Array<{
+  kind: CommercialIntentKind;
+  terms: string[];
+}> = [
+  {
+    kind: "preco",
+    terms: [
+      "preco",
+      "valor",
+      "quanto custa",
+      "quanto fica",
+      "qual o valor",
+      "qual valor",
+      "investimento",
+      "orcamento",
+      "tabela",
+      "pacote",
+      "planos",
+    ],
+  },
+  {
+    kind: "call",
+    terms: [
+      "call",
+      "reuniao",
+      "reunir",
+      "conversar",
+      "podemos marcar",
+      "agendar",
+      "agenda",
+      "horario",
+      "me chama",
+      "falar com alguem",
+      "atendimento",
+    ],
+  },
+  {
+    kind: "compra",
+    terms: [
+      "comprar",
+      "quero comprar",
+      "fechar",
+      "fechar agora",
+      "contratar",
+      "quero contratar",
+      "pagar",
+      "pagamento",
+      "pix",
+      "cartao",
+      "boleto",
+    ],
+  },
+  {
+    kind: "interesse",
+    terms: [
+      "tenho interesse",
+      "me interessei",
+      "quero participar",
+      "quero entrar",
+      "quero saber mais",
+      "como funciona",
+      "me explica",
+      "mais informacoes",
+      "informacoes",
+    ],
+  },
+];
+
+function detectCommercialIntent(message?: string): CommercialIntentDetection | null {
+  const normalizedMessage = normalizeSearchText(message);
+  if (!normalizedMessage) return null;
+
+  for (const pattern of COMMERCIAL_INTENT_PATTERNS) {
+    const matchedTerm = pattern.terms.find((term) => normalizedMessage.includes(term));
+    if (matchedTerm) {
+      return {
+        kind: pattern.kind,
+        matchedTerm,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getCommercialIntentNote(kind: CommercialIntentKind) {
+  const notes: Record<CommercialIntentKind, string> = {
+    preco: "Lead pediu preço, valor ou investimento pelo WhatsApp.",
+    call: "Lead pediu conversa, atendimento ou agendamento pelo WhatsApp.",
+    compra: "Lead demonstrou intenção de compra ou contratação pelo WhatsApp.",
+    interesse: "Lead demonstrou interesse comercial pelo WhatsApp.",
+  };
+
+  return notes[kind];
+}
+
+function normalizeSearchText(value?: string) {
+  return value
+    ?.normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 async function findOrCreateWhatsAppContact(message: InboundMessage): Promise<Contact> {
