@@ -26,12 +26,15 @@ const leadActionBodySchema = z
       "resolver_handoff",
       "agendar_followup",
       "followup_realizado",
+      "mensagem_copiada",
+      "mensagem_enviada",
       "pausar",
       "reativar",
       "optout",
     ]),
     note: z.string().trim().max(500).optional(),
     dueAt: z.string().trim().max(80).optional(),
+    message: z.string().trim().max(2000).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.action === "agendar_followup" && !value.dueAt) {

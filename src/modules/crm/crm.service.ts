@@ -19,11 +19,14 @@ export type LeadActionInput = {
     | "resolver_handoff"
     | "agendar_followup"
     | "followup_realizado"
+    | "mensagem_copiada"
+    | "mensagem_enviada"
     | "pausar"
     | "reativar"
     | "optout";
   note?: string;
   dueAt?: string;
+  message?: string;
 };
 
 type LeadSummaryItem = {
@@ -291,6 +294,7 @@ export async function applyLeadAction(contactId: string, input: LeadActionInput)
           note: input.note,
           source: "crm",
           dueAt: input.dueAt,
+          message: input.message,
         }) as Prisma.InputJsonValue,
       },
     });
@@ -317,6 +321,8 @@ function getEventTypeForAction(action: LeadActionInput["action"]) {
     resolver_handoff: "crm_handoff_resolvido",
     agendar_followup: FOLLOWUP_SCHEDULED_EVENT,
     followup_realizado: FOLLOWUP_DONE_EVENT,
+    mensagem_copiada: "crm_mensagem_copiada",
+    mensagem_enviada: "crm_mensagem_enviada",
     pausar: "crm_lead_pausado",
     reativar: "crm_lead_reativado",
     optout: "crm_lead_optout",

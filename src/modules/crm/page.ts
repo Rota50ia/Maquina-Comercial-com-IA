@@ -171,6 +171,10 @@ export function renderCrmPage() {
       resize: vertical;
     }
 
+    .message-text {
+      min-height: 148px;
+    }
+
     input:focus,
     select:focus,
     textarea:focus,
@@ -322,6 +326,12 @@ export function renderCrmPage() {
     }
 
     .actions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .message-actions {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
@@ -656,6 +666,7 @@ export function renderCrmPage() {
       const latestScore = lead.leadScores[0] || {};
       const latestRoute = lead.routeDecisions[0] || {};
       const latestFollowUp = getLatestFollowUpFromEvents(lead.eventLogs || []);
+      const messageSuggestion = generateMessageSuggestion(lead, latestQuiz, latestRoute);
       const tags = (lead.tags || []).map((tag) => '<span class="badge">' + escapeHtml(tag.key) + '</span>').join("");
       const events = (lead.eventLogs || []).slice(0, 8).map((event) => (
         '<div class="kv"><span>' + formatDate(event.createdAt) + '</span><strong>' + escapeHtml(event.eventType) + eventNote(event) + '</strong></div>'
@@ -679,6 +690,14 @@ export function renderCrmPage() {
           kv("Próxima ação", latestFollowUp && latestFollowUp.dueAt ? formatDate(latestFollowUp.dueAt) : "-"),
           kv("Nota", latestFollowUp && latestFollowUp.note ? latestFollowUp.note : "-"),
         ].join("")),
+        section("Mensagem", [
+          '<textarea class="message-text" id="messageText">' + escapeHtml(messageSuggestion) + '</textarea>',
+          '<div class="message-actions">',
+          '<button class="action-button primary" type="button" data-message-action="copy">Copiar mensagem</button>',
+          '<button class="action-button" type="button" data-message-action="sent">Registrar enviada</button>',
+          '</div>',
+          '<div class="notice" id="messageState">Mensagem editável antes do envio.</div>',
+        ].join("")),
         section("Ações", [
           '<textarea id="actionNote" maxlength="500" placeholder="Nota opcional para registrar no histórico"></textarea>',
           '<input id="followUpDueAt" type="datetime-local" aria-label="Data e hora do follow-up">',
@@ -701,6 +720,10 @@ export function renderCrmPage() {
 
       for (const button of elements.detail.querySelectorAll("[data-action]")) {
         button.addEventListener("click", () => performLeadAction(lead.id, button.dataset.action));
+      }
+
+      for (const button of elements.detail.querySelectorAll("[data-message-action]")) {
+        button.addEventListener("click", () => performMessageAction(lead.id, button.dataset.messageAction));
       }
     }
 
@@ -746,6 +769,83 @@ export function renderCrmPage() {
         actionState.textContent = error.message;
         buttons.forEach((button) => button.disabled = false);
       }
+    }
+
+    async function performMessageAction(leadId, action) {
+      const message = document.getElementById("messageText");
+      const messageState = document.getElementById("messageState");
+      const buttons = Array.from(elements.detail.querySelectorAll("[data-message-action]"));
+      const value = message && message.value ? message.value.trim() : "";
+
+      if (!value) {
+        messageState.textContent = "Mensagem vazia.";
+        return;
+      }
+
+      buttons.forEach((button) => button.disabled = true);
+
+      try {
+        let successMessage = "Ação registrada.";
+
+        if (action === "copy") {
+          await copyToClipboard(value);
+          await registerLeadAction(leadId, {
+            action: "mensagem_copiada",
+            note: "Mensagem copiada para WhatsApp",
+            message: value,
+          });
+          successMessage = "Mensagem copiada.";
+        } else {
+          await registerLeadAction(leadId, {
+            action: "mensagem_enviada",
+            note: "Mensagem registrada como enviada",
+            message: value,
+          });
+          successMessage = "Envio registrado.";
+        }
+
+        await selectLead(leadId);
+        const updatedMessageState = document.getElementById("messageState");
+        if (updatedMessageState) updatedMessageState.textContent = successMessage;
+      } catch (error) {
+        messageState.textContent = error.message;
+      } finally {
+        buttons.forEach((button) => button.disabled = false);
+      }
+    }
+
+    async function registerLeadAction(leadId, body) {
+      const response = await fetch("/internal/leads/" + encodeURIComponent(leadId) + "/actions", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) throw new Error("Falha ao registrar ação.");
+
+      await loadLeads();
+
+      return response.json();
+    }
+
+    async function copyToClipboard(value) {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+        return;
+      }
+
+      const textarea = document.createElement("textarea");
+      textarea.value = value;
+      textarea.setAttribute("readonly", "");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
     }
 
     function section(title, content) {
@@ -851,15 +951,63 @@ export function renderCrmPage() {
       return "Pendente";
     }
 
+    function generateMessageSuggestion(lead, quiz, route) {
+      const name = firstName(lead.name);
+      const gargalo = quiz.gargalo || "diagnostico";
+      const context = gargaloContext(gargalo);
+      const routeLine = route && route.route === "rota:chamar-humano"
+        ? "Como esse caso pede atenção humana, eu vou olhar com mais cuidado antes de te orientar."
+        : "O próximo passo é revisar essa parte com calma antes de mexer em outros pontos do funil.";
+
+      return [
+        "Oi, " + name + ". Vi seu diagnóstico do Raio X.",
+        "",
+        "O ponto que apareceu com mais força foi " + context + ".",
+        routeLine,
+        "",
+        "Faz sentido para você hoje?",
+      ].join("\\n");
+    }
+
+    function firstName(name) {
+      const value = String(name || "").trim();
+      if (!value) return "tudo bem";
+
+      return value.split(/\\s+/)[0];
+    }
+
+    function gargaloContext(gargalo) {
+      const contexts = {
+        promessa: "a promessa, principalmente clareza de desejo, crença e mecanismo",
+        criativo: "os criativos, principalmente hook, ângulo e variação",
+        vsl: "a VSL, principalmente retenção, mecanismo e pitch",
+        pagina: "a página, principalmente continuidade, clareza e chamada para ação",
+        oferta: "a oferta, principalmente empacotamento, valor percebido e ancoragem",
+        checkout: "o checkout, principalmente decisão de compra, pagamento e próximos passos",
+        followup: "o follow-up, principalmente leads que entram e esfriam",
+        politica: "a qualidade percebida, principalmente linguagem sensível e confiança",
+        diagnostico: "o diagnóstico, principalmente clareza sobre onde está o gargalo",
+      };
+
+      return contexts[gargalo] || "o diagnóstico comercial";
+    }
+
     function eventNote(event) {
       const note = event && event.payload && event.payload.note;
       const dueAt = event && event.payload && event.payload.dueAt;
+      const message = event && event.payload && event.payload.message;
       const items = [];
 
       if (note) items.push(escapeHtml(note));
       if (dueAt) items.push("Follow-up: " + escapeHtml(formatDate(dueAt)));
+      if (message) items.push("Mensagem: " + escapeHtml(truncate(message, 120)));
 
       return items.length ? '<div class="muted">' + items.join("<br>") + '</div>' : "";
+    }
+
+    function truncate(value, maxLength) {
+      const text = String(value || "");
+      return text.length > maxLength ? text.slice(0, maxLength - 1) + "..." : text;
     }
 
     function escapeHtml(value) {
