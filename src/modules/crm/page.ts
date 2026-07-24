@@ -874,6 +874,7 @@ export function renderCrmPage() {
     function renderEventSummary(events) {
       const items = [
         { key: "Handoffs abertos", count: events.handoffs || 0 },
+        { key: "Atendimentos iniciados", count: events.handoffsStarted || 0 },
         { key: "Handoffs resolvidos", count: events.handoffsResolved || 0 },
         { key: "Follow-ups agendados", count: events.followUpsScheduled || 0 },
         { key: "Follow-ups feitos", count: events.followUpsDone || 0 },
@@ -993,6 +994,7 @@ export function renderCrmPage() {
           actionButton("agendar_followup", "Agendar follow-up", "primary"),
           actionButton("followup_realizado", "Follow-up feito", ""),
           actionButton("handoff_humano", "Handoff humano", "primary"),
+          actionButton("atendimento_iniciado", "Atendimento iniciado", "primary"),
           actionButton("resolver_handoff", "Resolver handoff", ""),
           actionButton("pausar", "Pausar lead", ""),
           actionButton("reativar", "Reativar", ""),
@@ -1307,6 +1309,7 @@ export function renderCrmPage() {
       const latestRoute = lead.latestRoute && lead.latestRoute.route;
       const classification = lead.latestScore && lead.latestScore.classification;
 
+      if (latestRoute === "rota:atendimento-iniciado") return false;
       if (latestRoute === "rota:handoff-resolvido") return false;
 
       return latestRoute === "rota:chamar-humano" || classification === "prioridade";
@@ -1348,11 +1351,14 @@ export function renderCrmPage() {
       const events = lead.eventLogs || [];
       const intentEvent = events.find((event) => event.eventType === "whatsapp_intencao_comercial_detectada");
       const inboundEvent = events.find((event) => event.eventType === "whatsapp_mensagem_recebida");
+      const startedEvent = events.find((event) => event.eventType === "crm_atendimento_iniciado");
       const manualHandoffEvent = events.find((event) => event.eventType === "crm_handoff_humano");
       const isPriority = score && score.classification === "prioridade";
       const isHandoff = route && route.route === "rota:chamar-humano";
+      const isInProgress = route && route.route === "rota:atendimento-iniciado";
+      const isResolved = route && route.route === "rota:handoff-resolvido";
 
-      if (!intentEvent && !manualHandoffEvent && !isPriority && !isHandoff) {
+      if (!intentEvent && !manualHandoffEvent && !startedEvent && !isPriority && !isHandoff && !isInProgress) {
         return "";
       }
 
@@ -1360,6 +1366,7 @@ export function renderCrmPage() {
       const latestMessage = payloadText(intentEvent, "message") || payloadText(inboundEvent, "message");
       const reason =
         payloadText(intentEvent, "note") ||
+        payloadText(startedEvent, "note") ||
         payloadText(manualHandoffEvent, "note") ||
         (isPriority ? "Lead classificado como prioridade." : "") ||
         route.reason ||
@@ -1370,6 +1377,7 @@ export function renderCrmPage() {
       ].join(" · ");
 
       return section("Resumo para atendimento", [
+        kv("Status", handoffStatusLabel(isInProgress, isResolved)),
         kv("Motivo", reason),
         kv("Intenção", intent ? intentLabel(intent) : "-"),
         kv("Última mensagem", latestMessage ? '"' + truncate(latestMessage, 160) + '"' : "-"),
@@ -1378,6 +1386,13 @@ export function renderCrmPage() {
         kv("Rota", route.route || "-"),
         '<div class="notice">' + escapeHtml(getHandoffApproach(intent, quiz.gargalo)) + '</div>',
       ].join(""));
+    }
+
+    function handoffStatusLabel(isInProgress, isResolved) {
+      if (isResolved) return "Resolvido";
+      if (isInProgress) return "Em atendimento";
+
+      return "Novo handoff";
     }
 
     function intentLabel(intent) {

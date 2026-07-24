@@ -71,6 +71,7 @@ const leadActionBodySchema = z
       "marcar_para_contato",
       "contato_realizado",
       "handoff_humano",
+      "atendimento_iniciado",
       "resolver_handoff",
       "agendar_followup",
       "followup_realizado",

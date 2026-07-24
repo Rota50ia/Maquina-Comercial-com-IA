@@ -22,6 +22,7 @@ export type LeadActionInput = {
     | "marcar_para_contato"
     | "contato_realizado"
     | "handoff_humano"
+    | "atendimento_iniciado"
     | "resolver_handoff"
     | "agendar_followup"
     | "followup_realizado"
@@ -67,6 +68,7 @@ type LeadSummaryItem = {
 };
 
 const HUMAN_HANDOFF_ROUTE = "rota:chamar-humano";
+const IN_PROGRESS_HANDOFF_ROUTE = "rota:atendimento-iniciado";
 const RESOLVED_HANDOFF_ROUTE = "rota:handoff-resolvido";
 const FOLLOWUP_SCHEDULED_EVENT = "crm_followup_agendado";
 const FOLLOWUP_DONE_EVENT = "crm_followup_realizado";
@@ -77,6 +79,7 @@ const COMMERCIAL_EVENT_TYPES = [
   "crm_marcar_para_contato",
   "crm_contato_realizado",
   "crm_handoff_humano",
+  "crm_atendimento_iniciado",
   "crm_handoff_resolvido",
   "crm_followup_agendado",
   "crm_followup_realizado",
@@ -339,6 +342,16 @@ export async function applyLeadAction(contactId: string, input: LeadActionInput)
           contactId,
           route: HUMAN_HANDOFF_ROUTE,
           reason: input.note || "handoff humano acionado manualmente no CRM",
+        },
+      });
+    }
+
+    if (input.action === "atendimento_iniciado") {
+      await tx.routeDecision.create({
+        data: {
+          contactId,
+          route: IN_PROGRESS_HANDOFF_ROUTE,
+          reason: input.note || "atendimento humano iniciado no CRM",
         },
       });
     }
@@ -789,6 +802,7 @@ function getEventTypeForAction(action: LeadActionInput["action"]) {
     marcar_para_contato: "crm_marcar_para_contato",
     contato_realizado: "crm_contato_realizado",
     handoff_humano: "crm_handoff_humano",
+    atendimento_iniciado: "crm_atendimento_iniciado",
     resolver_handoff: "crm_handoff_resolvido",
     agendar_followup: FOLLOWUP_SCHEDULED_EVENT,
     followup_realizado: FOLLOWUP_DONE_EVENT,
@@ -807,6 +821,7 @@ function isMessageAction(action: LeadActionInput["action"]) {
 }
 
 function isLeadInHandoffQueue(lead: LeadSummaryItem) {
+  if (lead.latestRoute?.route === IN_PROGRESS_HANDOFF_ROUTE) return false;
   if (lead.latestRoute?.route === RESOLVED_HANDOFF_ROUTE) return false;
 
   return lead.latestRoute?.route === HUMAN_HANDOFF_ROUTE || lead.latestScore?.classification === "prioridade";
@@ -869,6 +884,7 @@ function summarizeCommercialEvents(events: Array<{ eventType: string }>) {
 
   return {
     handoffs: relevantEvents.filter((event) => event.eventType === "crm_handoff_humano").length,
+    handoffsStarted: relevantEvents.filter((event) => event.eventType === "crm_atendimento_iniciado").length,
     handoffsResolved: relevantEvents.filter((event) => event.eventType === "crm_handoff_resolvido").length,
     followUpsScheduled: relevantEvents.filter((event) => event.eventType === FOLLOWUP_SCHEDULED_EVENT).length,
     followUpsDone: relevantEvents.filter((event) => event.eventType === FOLLOWUP_DONE_EVENT).length,
