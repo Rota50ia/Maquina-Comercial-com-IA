@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { checkMessageGuardrail } from "../guardrails/guardrail.service.js";
 import { validateDashboardAuth } from "./auth.js";
 import { applyLeadAction, getCrmReport, getLeadDetail, listLeads } from "./crm.service.js";
 import { renderCrmPage } from "./page.js";
@@ -19,6 +20,10 @@ const leadListQuerySchema = z.object({
 
 const reportQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(90).default(14),
+});
+
+const messageGuardrailBodySchema = z.object({
+  message: z.string().trim().min(1).max(2000),
 });
 
 const leadActionBodySchema = z
@@ -46,6 +51,14 @@ const leadActionBodySchema = z
         code: "custom",
         path: ["dueAt"],
         message: "Informe data e hora do follow-up.",
+      });
+    }
+
+    if (["mensagem_copiada", "mensagem_enviada"].includes(value.action) && !value.message) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["message"],
+        message: "Informe a mensagem para validar o guardrail.",
       });
     }
   });
@@ -121,6 +134,30 @@ export async function registerCrmRoutes(app: FastifyInstance) {
     return getCrmReport(queryResult.data);
   });
 
+  app.post("/internal/messages/guardrail-check", async (request, reply) => {
+    const authReply = validateDashboardAuth(request, reply);
+    if (authReply) return authReply;
+
+    const bodyResult = messageGuardrailBodySchema.safeParse(request.body);
+    if (!bodyResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: "invalid_payload",
+        issues: bodyResult.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      });
+    }
+
+    const guardrail = checkMessageGuardrail(bodyResult.data.message);
+
+    return reply.status(guardrail.status === "blocked" ? 422 : 200).send({
+      ok: guardrail.status === "approved",
+      guardrail,
+    });
+  });
+
   app.post("/internal/leads/:contactId/actions", async (request, reply) => {
     const authReply = validateDashboardAuth(request, reply);
     if (authReply) return authReply;
@@ -148,6 +185,10 @@ export async function registerCrmRoutes(app: FastifyInstance) {
     const params = paramsResult.data;
     const body = bodyResult.data;
     const detail = await applyLeadAction(params.contactId, body);
+
+    if (detail && "error" in detail && detail.error === "message_blocked") {
+      return reply.status(422).send(detail);
+    }
 
     if (!detail) {
       return reply.status(404).send({

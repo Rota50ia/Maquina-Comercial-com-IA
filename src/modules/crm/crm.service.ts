@@ -1,4 +1,5 @@
 import type { ContactStatus, LeadClassification, Prisma } from "@prisma/client";
+import { checkMessageGuardrail } from "../guardrails/guardrail.service.js";
 import { prisma } from "../../shared/db/prisma.js";
 
 export type LeadListFilters = {
@@ -64,6 +65,7 @@ const COMMERCIAL_EVENT_TYPES = [
   "crm_followup_realizado",
   "crm_mensagem_copiada",
   "crm_mensagem_enviada",
+  "crm_mensagem_bloqueada",
   "crm_lead_pausado",
   "crm_lead_reativado",
   "crm_lead_optout",
@@ -267,6 +269,33 @@ export async function applyLeadAction(contactId: string, input: LeadActionInput)
   });
 
   if (!contact) return null;
+
+  if (isMessageAction(input.action)) {
+    const guardrail = checkMessageGuardrail(input.message ?? "");
+
+    if (guardrail.status === "blocked") {
+      await prisma.eventLog.create({
+        data: {
+          contactId,
+          eventType: "crm_mensagem_bloqueada",
+          payload: compactJson({
+            action: input.action,
+            note: "Mensagem bloqueada pelo guardrail",
+            source: "crm",
+            message: input.message,
+            guardrail,
+          }) as Prisma.InputJsonValue,
+        },
+      });
+
+      return {
+        ok: false,
+        error: "message_blocked",
+        guardrail,
+        detail: await getLeadDetail(contactId),
+      };
+    }
+  }
 
   await prisma.$transaction(async (tx) => {
     const status = getStatusForAction(input.action);
@@ -479,6 +508,10 @@ function getEventTypeForAction(action: LeadActionInput["action"]) {
   };
 
   return eventTypeByAction[action];
+}
+
+function isMessageAction(action: LeadActionInput["action"]) {
+  return action === "mensagem_copiada" || action === "mensagem_enviada";
 }
 
 function isLeadInHandoffQueue(lead: LeadSummaryItem) {

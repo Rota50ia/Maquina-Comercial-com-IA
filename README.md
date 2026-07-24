@@ -35,6 +35,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - sugestão segura de mensagem por gargalo/rota.
 - registro de mensagem copiada/enviada no histórico.
 - relatório gerencial simples com distribuição por gargalo, classificação, rota, volume diário e eventos comerciais.
+- guardrail automático antes de copiar/registrar mensagem no CRM.
 
 ## Rotas principais
 
@@ -45,6 +46,7 @@ GET  /crm
 GET  /internal/leads
 GET  /internal/leads/:contactId
 GET  /internal/reports/summary
+POST /internal/messages/guardrail-check
 POST /internal/leads/:contactId/actions
 ```
 
@@ -79,6 +81,7 @@ agenda/fila de follow-up
 sugestão segura de mensagem
 registro de mensagem copiada/enviada
 relatório gerencial simples
+guardrail automático de mensagens
 ```
 
 Fluxo operacional recomendado:
@@ -88,6 +91,7 @@ Lead entra pelo quiz
 → operador abre o CRM
 → confere gargalo, score e rota
 → copia ou ajusta a mensagem sugerida
+→ CRM valida a mensagem no guardrail
 → envia pelo WhatsApp
 → registra mensagem enviada
 → agenda follow-up ou aciona handoff humano
@@ -105,6 +109,7 @@ crm_followup_agendado
 crm_followup_realizado
 crm_mensagem_copiada
 crm_mensagem_enviada
+crm_mensagem_bloqueada
 crm_lead_pausado
 crm_lead_reativado
 crm_lead_optout

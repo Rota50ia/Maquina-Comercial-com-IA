@@ -1044,6 +1044,8 @@ export function renderCrmPage() {
 
       try {
         let successMessage = "Ação registrada.";
+        messageState.textContent = "Validando mensagem...";
+        await checkMessageGuardrail(value);
 
         if (action === "copy") {
           await copyToClipboard(value);
@@ -1072,6 +1074,21 @@ export function renderCrmPage() {
       }
     }
 
+    async function checkMessageGuardrail(message) {
+      const response = await fetch("/internal/messages/guardrail-check", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message }),
+      });
+
+      if (!response.ok) throw new Error(await readActionError(response, "Mensagem bloqueada pelo guardrail."));
+
+      return response.json();
+    }
+
     async function registerLeadAction(leadId, body) {
       const response = await fetch("/internal/leads/" + encodeURIComponent(leadId) + "/actions", {
         method: "POST",
@@ -1082,11 +1099,29 @@ export function renderCrmPage() {
         body: JSON.stringify(body),
       });
 
-      if (!response.ok) throw new Error("Falha ao registrar ação.");
+      if (!response.ok) throw new Error(await readActionError(response, "Falha ao registrar ação."));
 
       await loadLeads();
 
       return response.json();
+    }
+
+    async function readActionError(response, fallback) {
+      try {
+        const data = await response.json();
+
+        if (data.guardrail && data.guardrail.reason) {
+          return "Mensagem bloqueada: " + data.guardrail.reason;
+        }
+
+        if (data.issues && data.issues.length) {
+          return data.issues.map((issue) => issue.message).join(" ");
+        }
+
+        return data.error || fallback;
+      } catch {
+        return fallback;
+      }
     }
 
     async function copyToClipboard(value) {
