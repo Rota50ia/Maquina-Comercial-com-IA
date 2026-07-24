@@ -940,6 +940,7 @@ export function renderCrmPage() {
       const latestRoute = lead.routeDecisions[0] || {};
       const latestFollowUp = getLatestFollowUpFromEvents(lead.eventLogs || []);
       const messageSuggestion = generateMessageSuggestion(lead, latestQuiz, latestRoute);
+      const handoffSummary = renderHandoffSummary(lead, latestQuiz, latestScore, latestRoute);
       const tags = (lead.tags || []).map((tag) => '<span class="badge">' + escapeHtml(tag.key) + '</span>').join("");
       const events = (lead.eventLogs || []).slice(0, 8).map((event) => (
         '<div class="kv"><span>' + formatDate(event.createdAt) + '</span><strong>' + escapeHtml(event.eventType) + eventNote(event) + '</strong></div>'
@@ -957,6 +958,7 @@ export function renderCrmPage() {
           '<button class="action-button primary" type="button" data-contact-save>Salvar contato</button>',
           '<div class="notice" id="contactState">Use DDI e DDD no WhatsApp antes de enviar mensagem.</div>',
         ].join("")),
+        handoffSummary,
         section("Diagnóstico", [
           kv("Gargalo", latestQuiz.gargalo || "-"),
           kv("Resultado", latestQuiz.resultTitle || "-"),
@@ -1342,6 +1344,65 @@ export function renderCrmPage() {
       return "Pendente";
     }
 
+    function renderHandoffSummary(lead, quiz, score, route) {
+      const events = lead.eventLogs || [];
+      const intentEvent = events.find((event) => event.eventType === "whatsapp_intencao_comercial_detectada");
+      const inboundEvent = events.find((event) => event.eventType === "whatsapp_mensagem_recebida");
+      const manualHandoffEvent = events.find((event) => event.eventType === "crm_handoff_humano");
+      const isPriority = score && score.classification === "prioridade";
+      const isHandoff = route && route.route === "rota:chamar-humano";
+
+      if (!intentEvent && !manualHandoffEvent && !isPriority && !isHandoff) {
+        return "";
+      }
+
+      const intent = payloadText(intentEvent, "intent");
+      const latestMessage = payloadText(intentEvent, "message") || payloadText(inboundEvent, "message");
+      const reason =
+        payloadText(intentEvent, "note") ||
+        payloadText(manualHandoffEvent, "note") ||
+        (isPriority ? "Lead classificado como prioridade." : "") ||
+        route.reason ||
+        "Lead encaminhado para atendimento humano.";
+      const scoreLabel = [
+        score && score.score !== undefined ? score.score : "-",
+        score && score.classification ? score.classification : "-",
+      ].join(" · ");
+
+      return section("Resumo para atendimento", [
+        kv("Motivo", reason),
+        kv("Intenção", intent ? intentLabel(intent) : "-"),
+        kv("Última mensagem", latestMessage ? '"' + truncate(latestMessage, 160) + '"' : "-"),
+        kv("Gargalo", quiz.gargalo || "-"),
+        kv("Score", scoreLabel),
+        kv("Rota", route.route || "-"),
+        '<div class="notice">' + escapeHtml(getHandoffApproach(intent, quiz.gargalo)) + '</div>',
+      ].join(""));
+    }
+
+    function intentLabel(intent) {
+      const labels = {
+        preco: "Preço ou investimento",
+        call: "Conversa ou agendamento",
+        compra: "Compra ou contratação",
+        interesse: "Interesse comercial",
+      };
+
+      return labels[intent] || intent;
+    }
+
+    function getHandoffApproach(intent, gargalo) {
+      const context = gargaloContext(gargalo || "diagnostico");
+      const intentLine = {
+        preco: "Reconheça o pedido de valor e entenda o contexto antes de falar de oferta.",
+        call: "Confirme disponibilidade e conduza para uma conversa objetiva.",
+        compra: "Valide encaixe e próximos passos antes de orientar pagamento ou contratação.",
+        interesse: "Aprofunde a necessidade e conecte a conversa ao diagnóstico.",
+      }[intent] || "Retome a conversa pelo contexto do diagnóstico.";
+
+      return intentLine + " Evite promessa de resultado. Use como gancho: " + context + ".";
+    }
+
     function generateMessageSuggestion(lead, quiz, route) {
       const name = firstName(lead.name);
       const gargalo = quiz.gargalo || "diagnostico";
@@ -1394,6 +1455,12 @@ export function renderCrmPage() {
       if (message) items.push("Mensagem: " + escapeHtml(truncate(message, 120)));
 
       return items.length ? '<div class="muted">' + items.join("<br>") + '</div>' : "";
+    }
+
+    function payloadText(event, key) {
+      const value = event && event.payload && event.payload[key];
+
+      return typeof value === "string" && value.trim() ? value.trim() : "";
     }
 
     function truncate(value, maxLength) {

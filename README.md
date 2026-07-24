@@ -32,6 +32,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - edição de nome, e-mail e WhatsApp do lead no CRM.
 - ações manuais no CRM.
 - fila de handoff humano.
+- resumo para atendimento humano no detalhe do lead.
 - agenda/fila de follow-up.
 - sugestão segura de mensagem por gargalo/rota.
 - registro de mensagem copiada/enviada no histórico.
@@ -87,6 +88,7 @@ histórico de eventos
 edição de contato
 ações manuais
 fila de handoff
+resumo para atendimento humano
 agenda/fila de follow-up
 sugestão segura de mensagem
 registro de mensagem copiada/enviada
