@@ -846,6 +846,9 @@ export function renderCrmPage() {
         '<span class="badge active">Operacional</span>',
         '</div>',
         '<div class="report-grid">',
+        reportSection("Funil de atendimento", renderAttendanceFunnel(report.funnel || {}), "full"),
+        reportSection("Handoffs abertos mais antigos", renderReportLeadList(report.oldestOpenHandoffs || [], "open")),
+        reportSection("Últimos resolvidos", renderReportLeadList(report.latestResolvedHandoffs || [], "resolved")),
         reportSection("Gargalos", renderBars(report.byGargalo || [])),
         reportSection("Classificação", renderBars(report.byClassification || [])),
         reportSection("Rotas", renderBars(report.byRoute || [])),
@@ -858,6 +861,43 @@ export function renderCrmPage() {
 
     function reportSection(title, content, variant) {
       return '<div class="report-section ' + escapeHtml(variant || "") + '"><h3>' + escapeHtml(title) + '</h3>' + content + '</div>';
+    }
+
+    function renderAttendanceFunnel(funnel) {
+      const items = [
+        { key: "Fila handoff", count: funnel.handoff || 0 },
+        { key: "Em atendimento", count: funnel.inProgress || 0 },
+        { key: "Resolvidos", count: funnel.resolved || 0 },
+        { key: "Taxa de resolução", count: (funnel.resolutionRate || 0) + "%" },
+      ];
+
+      return '<div class="metrics">' + items.map((item) => metric(item.key, item.count)).join("") + '</div>';
+    }
+
+    function renderReportLeadList(leads, mode) {
+      if (!leads.length) return '<div class="muted">Sem leads nesta visão.</div>';
+
+      return '<div class="report-events">' + leads.map((lead) => {
+        const leadLabel = lead.name || lead.email || lead.phone || lead.id || "Lead sem identificação";
+        const score = lead.score !== undefined && lead.score !== null
+          ? lead.score + " · " + (lead.classification || "-")
+          : lead.classification || "-";
+        const age = mode === "open"
+          ? '<div class="muted">' + formatAgeHours(lead.ageHours) + ' em aberto</div>'
+          : '<div class="muted">Resolvido em ' + formatDate(lead.since) + '</div>';
+        const details = [
+          lead.gargalo ? "Gargalo: " + lead.gargalo : "",
+          score !== "-" ? "Score: " + score : "",
+          lead.reason || "",
+        ].filter(Boolean).join(" · ");
+
+        return [
+          '<div class="report-event">',
+          '<div class="muted">' + formatDate(lead.since) + '</div>',
+          '<div><strong>' + escapeHtml(leadLabel) + '</strong>' + age + '<div class="muted">' + escapeHtml(details || lead.route || "-") + '</div></div>',
+          '</div>',
+        ].join("");
+      }).join("") + '</div>';
     }
 
     function renderBars(items) {
@@ -1297,6 +1337,17 @@ export function renderCrmPage() {
         minute: "2-digit",
         second: "2-digit",
       }).format(value);
+    }
+
+    function formatAgeHours(value) {
+      const hours = Number(value) || 0;
+      if (hours < 1) return "menos de 1 hora";
+      if (hours < 24) return hours + "h";
+
+      const days = Math.floor(hours / 24);
+      const remainingHours = hours % 24;
+
+      return days + "d" + (remainingHours ? " " + remainingHours + "h" : "");
     }
 
     function setRefreshState(label, disabled) {

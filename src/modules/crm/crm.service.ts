@@ -53,7 +53,13 @@ export type UpdateLeadContactInput = {
 };
 
 type LeadSummaryItem = {
+  id?: string;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  updatedAt?: Date;
   latestScore: {
+    score?: number;
     classification: string;
   } | null;
   latestQuizSubmission: {
@@ -61,6 +67,8 @@ type LeadSummaryItem = {
   } | null;
   latestRoute: {
     route: string;
+    reason?: string;
+    createdAt?: Date;
   } | null;
   latestFollowUp?: {
     status: string;
@@ -677,7 +685,11 @@ export async function getCrmReport(filters: CrmReportFilters) {
       take: 1000,
       select: {
         id: true,
+        name: true,
+        email: true,
+        phone: true,
         status: true,
+        updatedAt: true,
         createdAt: true,
         quizSubmissions: {
           orderBy: { createdAt: "desc" },
@@ -701,6 +713,8 @@ export async function getCrmReport(filters: CrmReportFilters) {
           take: 1,
           select: {
             route: true,
+            reason: true,
+            createdAt: true,
           },
         },
         eventLogs: {
@@ -750,7 +764,12 @@ export async function getCrmReport(filters: CrmReportFilters) {
   ]);
 
   const leadItems = contacts.map((contact) => ({
+    id: contact.id,
+    name: contact.name,
+    email: contact.email,
+    phone: contact.phone,
     status: contact.status,
+    updatedAt: contact.updatedAt,
     latestQuizSubmission: contact.quizSubmissions[0] ?? null,
     latestScore: contact.leadScores[0] ?? null,
     latestRoute: contact.routeDecisions[0] ?? null,
@@ -763,6 +782,7 @@ export async function getCrmReport(filters: CrmReportFilters) {
   const followUpCount = leadItems.filter(isLeadInFollowUpQueue).length;
   const activeCount = contacts.filter((contact) => contact.status === "active").length;
   const optOutCount = contacts.filter((contact) => contact.status === "optout").length;
+  const funnel = summarizeAttendanceFunnel(leadItems);
 
   return {
     ok: true,
@@ -781,6 +801,7 @@ export async function getCrmReport(filters: CrmReportFilters) {
       resolved: resolvedCount,
       followUp: followUpCount,
     },
+    funnel,
     byGargalo: countBy(leadItems, (lead) => lead.latestQuizSubmission?.gargalo ?? "sem_gargalo"),
     byClassification: countBy(leadItems, (lead) => lead.latestScore?.classification ?? "sem_score"),
     byRoute: countBy(leadItems, (lead) => lead.latestRoute?.route ?? "sem_rota"),
@@ -792,6 +813,8 @@ export async function getCrmReport(filters: CrmReportFilters) {
       contact: event.contact,
       note: extractStringFromJson(event.payload, "note"),
     })),
+    oldestOpenHandoffs: getOldestOpenHandoffs(leadItems),
+    latestResolvedHandoffs: getLatestResolvedHandoffs(leadItems),
   };
 }
 
@@ -845,6 +868,55 @@ function isLeadResolvedQueue(lead: LeadSummaryItem) {
 
 function isLeadInFollowUpQueue(lead: LeadSummaryItem) {
   return lead.status !== "optout" && lead.latestFollowUp?.status === "pending";
+}
+
+function summarizeAttendanceFunnel(leads: LeadSummaryItem[]) {
+  const handoff = leads.filter(isLeadInHandoffQueue).length;
+  const inProgress = leads.filter(isLeadInProgressQueue).length;
+  const resolved = leads.filter(isLeadResolvedQueue).length;
+  const total = handoff + inProgress + resolved;
+
+  return {
+    handoff,
+    inProgress,
+    resolved,
+    total,
+    resolutionRate: total > 0 ? Math.round((resolved / total) * 100) : 0,
+  };
+}
+
+function getOldestOpenHandoffs(leads: LeadSummaryItem[]) {
+  return leads
+    .filter(isLeadInHandoffQueue)
+    .map(toReportLeadItem)
+    .sort((a, b) => new Date(a.since).getTime() - new Date(b.since).getTime())
+    .slice(0, 8);
+}
+
+function getLatestResolvedHandoffs(leads: LeadSummaryItem[]) {
+  return leads
+    .filter(isLeadResolvedQueue)
+    .map(toReportLeadItem)
+    .sort((a, b) => new Date(b.since).getTime() - new Date(a.since).getTime())
+    .slice(0, 8);
+}
+
+function toReportLeadItem(lead: LeadSummaryItem) {
+  const since = lead.latestRoute?.createdAt ?? lead.updatedAt ?? new Date();
+
+  return {
+    id: lead.id,
+    name: lead.name,
+    email: lead.email,
+    phone: lead.phone,
+    route: lead.latestRoute?.route,
+    reason: lead.latestRoute?.reason,
+    gargalo: lead.latestQuizSubmission?.gargalo,
+    score: lead.latestScore?.score,
+    classification: lead.latestScore?.classification,
+    since,
+    ageHours: Math.max(0, Math.round((Date.now() - since.getTime()) / (60 * 60 * 1000))),
+  };
 }
 
 function summarizeLeads(leads: LeadSummaryItem[]) {
