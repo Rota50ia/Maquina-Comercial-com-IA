@@ -2,7 +2,13 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { checkMessageGuardrail } from "../guardrails/guardrail.service.js";
 import { validateDashboardAuth } from "./auth.js";
-import { applyLeadAction, getCrmReport, getLeadDetail, listLeads } from "./crm.service.js";
+import {
+  applyLeadAction,
+  getCrmReport,
+  getLeadDetail,
+  listLeads,
+  sendLeadWhatsAppMessage,
+} from "./crm.service.js";
 import { renderCrmPage } from "./page.js";
 
 const leadClassificationSchema = z.enum(["frio", "morno", "quente", "prioridade", "sem_fit"]);
@@ -23,6 +29,10 @@ const reportQuerySchema = z.object({
 });
 
 const messageGuardrailBodySchema = z.object({
+  message: z.string().trim().min(1).max(2000),
+});
+
+const sendWhatsAppBodySchema = z.object({
   message: z.string().trim().min(1).max(2000),
 });
 
@@ -156,6 +166,57 @@ export async function registerCrmRoutes(app: FastifyInstance) {
       ok: guardrail.status === "approved",
       guardrail,
     });
+  });
+
+  app.post("/internal/leads/:contactId/messages/whatsapp", async (request, reply) => {
+    const authReply = validateDashboardAuth(request, reply);
+    if (authReply) return authReply;
+
+    const paramsResult = z.object({ contactId: z.string().min(1) }).safeParse(request.params);
+    if (!paramsResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: "invalid_params",
+      });
+    }
+
+    const bodyResult = sendWhatsAppBodySchema.safeParse(request.body);
+    if (!bodyResult.success) {
+      return reply.status(400).send({
+        ok: false,
+        error: "invalid_payload",
+        issues: bodyResult.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      });
+    }
+
+    const result = await sendLeadWhatsAppMessage(paramsResult.data.contactId, bodyResult.data);
+
+    if (!result) {
+      return reply.status(404).send({
+        ok: false,
+        error: "lead_not_found",
+      });
+    }
+
+    if (!result.ok) {
+      const statusByError: Record<string, number> = {
+        message_blocked: 422,
+        missing_phone: 400,
+        lead_optout: 409,
+        uazapi_not_configured: 503,
+        uazapi_request_failed: 502,
+        whatsapp_send_failed: 502,
+      };
+
+      const errorCode = typeof result.error === "string" ? result.error : "unknown_error";
+
+      return reply.status(statusByError[errorCode] ?? 400).send(result);
+    }
+
+    return result;
   });
 
   app.post("/internal/leads/:contactId/actions", async (request, reply) => {

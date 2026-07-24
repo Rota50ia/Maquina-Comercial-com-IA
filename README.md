@@ -36,6 +36,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - registro de mensagem copiada/enviada no histórico.
 - relatório gerencial simples com distribuição por gargalo, classificação, rota, volume diário e eventos comerciais.
 - guardrail automático antes de copiar/registrar mensagem no CRM.
+- envio controlado de WhatsApp pelo backend via adaptador UAZAPI.
 
 ## Rotas principais
 
@@ -47,6 +48,7 @@ GET  /internal/leads
 GET  /internal/leads/:contactId
 GET  /internal/reports/summary
 POST /internal/messages/guardrail-check
+POST /internal/leads/:contactId/messages/whatsapp
 POST /internal/leads/:contactId/actions
 ```
 
@@ -82,6 +84,7 @@ sugestão segura de mensagem
 registro de mensagem copiada/enviada
 relatório gerencial simples
 guardrail automático de mensagens
+envio controlado de WhatsApp via backend/UAZAPI
 ```
 
 Fluxo operacional recomendado:
@@ -92,7 +95,7 @@ Lead entra pelo quiz
 → confere gargalo, score e rota
 → copia ou ajusta a mensagem sugerida
 → CRM valida a mensagem no guardrail
-→ envia pelo WhatsApp
+→ envia pelo WhatsApp via backend ou copia para envio manual
 → registra mensagem enviada
 → agenda follow-up ou aciona handoff humano
 → acompanha volume, gargalos e eventos na aba Relatório
@@ -110,6 +113,8 @@ crm_followup_realizado
 crm_mensagem_copiada
 crm_mensagem_enviada
 crm_mensagem_bloqueada
+crm_whatsapp_enviado
+crm_whatsapp_envio_falhou
 crm_lead_pausado
 crm_lead_reativado
 crm_lead_optout
@@ -133,9 +138,12 @@ APP_ORIGIN
 PORT
 DASHBOARD_USER
 DASHBOARD_PASSWORD
+UAZAPI_BASE_URL
+UAZAPI_TOKEN
 ```
 
 Em produção, o dashboard exige `DASHBOARD_USER` e `DASHBOARD_PASSWORD`.
+O envio direto de WhatsApp exige `UAZAPI_BASE_URL` e `UAZAPI_TOKEN`.
 
 ## Regra central
 

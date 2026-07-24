@@ -441,7 +441,7 @@ export function renderCrmPage() {
 
     .message-actions {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr 1fr;
       gap: 8px;
     }
 
@@ -500,6 +500,10 @@ export function renderCrmPage() {
       .report-grid,
       .bar-row,
       .report-event {
+        grid-template-columns: 1fr;
+      }
+
+      .message-actions {
         grid-template-columns: 1fr;
       }
 
@@ -869,6 +873,8 @@ export function renderCrmPage() {
         { key: "Follow-ups feitos", count: events.followUpsDone || 0 },
         { key: "Mensagens copiadas", count: events.messagesCopied || 0 },
         { key: "Mensagens enviadas", count: events.messagesSent || 0 },
+        { key: "WhatsApp enviados", count: events.whatsAppSent || 0 },
+        { key: "Falhas WhatsApp", count: events.whatsAppFailed || 0 },
         { key: "Contatos realizados", count: events.contactsDone || 0 },
       ];
 
@@ -953,6 +959,7 @@ export function renderCrmPage() {
           '<div class="message-actions">',
           '<button class="action-button primary" type="button" data-message-action="copy">Copiar mensagem</button>',
           '<button class="action-button" type="button" data-message-action="sent">Registrar enviada</button>',
+          '<button class="action-button primary" type="button" data-message-action="send">Enviar WhatsApp</button>',
           '</div>',
           '<div class="notice" id="messageState">Mensagem editável antes do envio.</div>',
         ].join("")),
@@ -1055,6 +1062,9 @@ export function renderCrmPage() {
             message: value,
           });
           successMessage = "Mensagem copiada.";
+        } else if (action === "send") {
+          await sendWhatsAppMessage(leadId, value);
+          successMessage = "WhatsApp enviado.";
         } else {
           await registerLeadAction(leadId, {
             action: "mensagem_enviada",
@@ -1072,6 +1082,23 @@ export function renderCrmPage() {
       } finally {
         buttons.forEach((button) => button.disabled = false);
       }
+    }
+
+    async function sendWhatsAppMessage(leadId, message) {
+      const response = await fetch("/internal/leads/" + encodeURIComponent(leadId) + "/messages/whatsapp", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message }),
+      });
+
+      if (!response.ok) throw new Error(await readActionError(response, "Falha ao enviar WhatsApp."));
+
+      await loadLeads();
+
+      return response.json();
     }
 
     async function checkMessageGuardrail(message) {

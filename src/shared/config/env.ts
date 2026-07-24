@@ -9,6 +9,8 @@ const envSchema = z.object({
   APP_ORIGIN: z.string().default("*"),
   DASHBOARD_USER: z.string().optional(),
   DASHBOARD_PASSWORD: z.string().optional(),
+  UAZAPI_BASE_URL: z.string().url().optional(),
+  UAZAPI_TOKEN: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);

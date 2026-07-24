@@ -1,4 +1,9 @@
 import type { ContactStatus, LeadClassification, Prisma } from "@prisma/client";
+import {
+  sendUazapiTextMessage,
+  UazapiConfigurationError,
+  UazapiRequestError,
+} from "../channels/uazapi.service.js";
 import { checkMessageGuardrail } from "../guardrails/guardrail.service.js";
 import { prisma } from "../../shared/db/prisma.js";
 
@@ -34,6 +39,10 @@ export type CrmReportFilters = {
   days?: number;
 };
 
+export type SendWhatsAppMessageInput = {
+  message: string;
+};
+
 type LeadSummaryItem = {
   latestScore: {
     classification: string;
@@ -66,6 +75,8 @@ const COMMERCIAL_EVENT_TYPES = [
   "crm_mensagem_copiada",
   "crm_mensagem_enviada",
   "crm_mensagem_bloqueada",
+  "crm_whatsapp_enviado",
+  "crm_whatsapp_envio_falhou",
   "crm_lead_pausado",
   "crm_lead_reativado",
   "crm_lead_optout",
@@ -350,6 +361,122 @@ export async function applyLeadAction(contactId: string, input: LeadActionInput)
   return getLeadDetail(contactId);
 }
 
+export async function sendLeadWhatsAppMessage(contactId: string, input: SendWhatsAppMessageInput) {
+  const contact = await prisma.contact.findUnique({
+    where: { id: contactId },
+    select: {
+      id: true,
+      phone: true,
+      status: true,
+    },
+  });
+
+  if (!contact) return null;
+
+  if (!contact.phone) {
+    return {
+      ok: false,
+      error: "missing_phone",
+      message: "Lead sem WhatsApp cadastrado.",
+      detail: await getLeadDetail(contactId),
+    };
+  }
+
+  if (contact.status === "optout") {
+    return {
+      ok: false,
+      error: "lead_optout",
+      message: "Lead está em opt-out.",
+      detail: await getLeadDetail(contactId),
+    };
+  }
+
+  const guardrail = checkMessageGuardrail(input.message);
+
+  if (guardrail.status === "blocked") {
+    await prisma.eventLog.create({
+      data: {
+        contactId,
+        eventType: "crm_mensagem_bloqueada",
+        payload: compactJson({
+          action: "enviar_whatsapp",
+          note: "Envio WhatsApp bloqueado pelo guardrail",
+          source: "crm",
+          channel: "whatsapp",
+          message: input.message,
+          guardrail,
+        }) as Prisma.InputJsonValue,
+      },
+    });
+
+    return {
+      ok: false,
+      error: "message_blocked",
+      guardrail,
+      detail: await getLeadDetail(contactId),
+    };
+  }
+
+  try {
+    const result = await sendUazapiTextMessage({
+      number: normalizeWhatsAppNumber(contact.phone),
+      text: input.message,
+    });
+
+    await prisma.$transaction([
+      prisma.contact.update({
+        where: { id: contactId },
+        data: { updatedAt: new Date() },
+      }),
+      prisma.eventLog.create({
+        data: {
+          contactId,
+          eventType: "crm_whatsapp_enviado",
+          payload: compactJson({
+            action: "enviar_whatsapp",
+            note: "Mensagem enviada pelo backend via UAZAPI",
+            source: "crm",
+            channel: "whatsapp",
+            provider: "uazapi",
+            providerStatus: result.status,
+            message: input.message,
+          }) as Prisma.InputJsonValue,
+        },
+      }),
+    ]);
+
+    return {
+      ok: true,
+      channel: "whatsapp",
+      provider: "uazapi",
+      providerStatus: result.status,
+      detail: await getLeadDetail(contactId),
+    };
+  } catch (error) {
+    await prisma.eventLog.create({
+      data: {
+        contactId,
+        eventType: "crm_whatsapp_envio_falhou",
+        payload: compactJson({
+          action: "enviar_whatsapp",
+          note: getWhatsAppSendFailureMessage(error),
+          source: "crm",
+          channel: "whatsapp",
+          provider: "uazapi",
+          message: input.message,
+        }) as Prisma.InputJsonValue,
+      },
+    });
+
+    return {
+      ok: false,
+      error: getWhatsAppSendFailureCode(error),
+      message: getWhatsAppSendFailureMessage(error),
+      detail: await getLeadDetail(contactId),
+    };
+  }
+}
+
 export async function getCrmReport(filters: CrmReportFilters) {
   const days = filters.days ?? 14;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -582,6 +709,8 @@ function summarizeCommercialEvents(events: Array<{ eventType: string }>) {
     followUpsDone: relevantEvents.filter((event) => event.eventType === FOLLOWUP_DONE_EVENT).length,
     messagesCopied: relevantEvents.filter((event) => event.eventType === "crm_mensagem_copiada").length,
     messagesSent: relevantEvents.filter((event) => event.eventType === "crm_mensagem_enviada").length,
+    whatsAppSent: relevantEvents.filter((event) => event.eventType === "crm_whatsapp_enviado").length,
+    whatsAppFailed: relevantEvents.filter((event) => event.eventType === "crm_whatsapp_envio_falhou").length,
     contactsDone: relevantEvents.filter((event) => event.eventType === "crm_contato_realizado").length,
   };
 }
@@ -620,6 +749,24 @@ function extractStringFromJson(value: Prisma.JsonValue, key: string) {
   const item = value[key];
 
   return typeof item === "string" ? item : undefined;
+}
+
+function normalizeWhatsAppNumber(phone: string) {
+  return phone.replace(/\D/g, "");
+}
+
+function getWhatsAppSendFailureCode(error: unknown) {
+  if (error instanceof UazapiConfigurationError) return "uazapi_not_configured";
+  if (error instanceof UazapiRequestError) return "uazapi_request_failed";
+
+  return "whatsapp_send_failed";
+}
+
+function getWhatsAppSendFailureMessage(error: unknown) {
+  if (error instanceof UazapiConfigurationError) return "UAZAPI não configurada.";
+  if (error instanceof UazapiRequestError) return `UAZAPI retornou erro ${error.status}.`;
+
+  return "Falha ao enviar mensagem pelo WhatsApp.";
 }
 
 function compactJson(value: Record<string, unknown>) {
