@@ -36,6 +36,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - fila de atendimentos em andamento.
 - visão de handoffs resolvidos.
 - resumo para atendimento humano no detalhe do lead.
+- SLA de handoff no resumo e no relatório.
 - agenda/fila de follow-up.
 - sugestão segura de mensagem por gargalo/rota.
 - registro de mensagem copiada/enviada no histórico.
@@ -97,6 +98,7 @@ marcação de atendimento iniciado
 fila de atendimentos em andamento
 visão de handoffs resolvidos
 resumo para atendimento humano
+SLA de handoff no resumo e no relatório
 agenda/fila de follow-up
 sugestão segura de mensagem
 registro de mensagem copiada/enviada

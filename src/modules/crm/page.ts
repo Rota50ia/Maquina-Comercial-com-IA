@@ -847,6 +847,7 @@ export function renderCrmPage() {
         '</div>',
         '<div class="report-grid">',
         reportSection("Funil de atendimento", renderAttendanceFunnel(report.funnel || {}), "full"),
+        reportSection("SLA de handoff", renderHandoffSla(report.sla || {}), "full"),
         reportSection("Handoffs abertos mais antigos", renderReportLeadList(report.oldestOpenHandoffs || [], "open")),
         reportSection("Últimos resolvidos", renderReportLeadList(report.latestResolvedHandoffs || [], "resolved")),
         reportSection("Gargalos", renderBars(report.byGargalo || [])),
@@ -874,6 +875,22 @@ export function renderCrmPage() {
       return '<div class="metrics">' + items.map((item) => metric(item.key, item.count)).join("") + '</div>';
     }
 
+    function renderHandoffSla(sla) {
+      const items = [
+        { key: "Abertos", count: sla.open || 0 },
+        { key: "Atenção", count: sla.attention || 0 },
+        { key: "Atrasados", count: sla.overdue || 0 },
+        { key: "Limite", count: (sla.overdueHours || 6) + "h" },
+      ];
+
+      return [
+        '<div class="metrics">',
+        items.map((item) => metric(item.key, item.count)).join(""),
+        '</div>',
+        '<div class="notice">Atenção a partir de ' + escapeHtml(sla.warningHours || 2) + 'h. Atrasado a partir de ' + escapeHtml(sla.overdueHours || 6) + 'h.</div>',
+      ].join("");
+    }
+
     function renderReportLeadList(leads, mode) {
       if (!leads.length) return '<div class="muted">Sem leads nesta visão.</div>';
 
@@ -883,7 +900,7 @@ export function renderCrmPage() {
           ? lead.score + " · " + (lead.classification || "-")
           : lead.classification || "-";
         const age = mode === "open"
-          ? '<div class="muted">' + formatAgeHours(lead.ageHours) + ' em aberto</div>'
+          ? '<div class="muted">' + formatAgeHours(lead.ageHours) + ' em aberto · ' + escapeHtml(slaStatusLabel(lead.slaStatus)) + '</div>'
           : '<div class="muted">Resolvido em ' + formatDate(lead.since) + '</div>';
         const details = [
           lead.gargalo ? "Gargalo: " + lead.gargalo : "",
@@ -1350,6 +1367,30 @@ export function renderCrmPage() {
       return days + "d" + (remainingHours ? " " + remainingHours + "h" : "");
     }
 
+    function getAgeHours(value) {
+      const timestamp = new Date(value).getTime();
+      if (!Number.isFinite(timestamp)) return 0;
+
+      return Math.max(0, Math.round((Date.now() - timestamp) / (60 * 60 * 1000)));
+    }
+
+    function getSlaStatus(ageHours) {
+      if (ageHours >= 6) return "overdue";
+      if (ageHours >= 2) return "attention";
+
+      return "ok";
+    }
+
+    function slaStatusLabel(status) {
+      const labels = {
+        ok: "no prazo",
+        attention: "atenção",
+        overdue: "atrasado",
+      };
+
+      return labels[status] || "no prazo";
+    }
+
     function setRefreshState(label, disabled) {
       elements.refresh.textContent = label;
       elements.refresh.disabled = disabled;
@@ -1447,9 +1488,11 @@ export function renderCrmPage() {
         score && score.score !== undefined ? score.score : "-",
         score && score.classification ? score.classification : "-",
       ].join(" · ");
+      const handoffAgeHours = route.createdAt ? getAgeHours(route.createdAt) : 0;
 
       return section("Resumo para atendimento", [
         kv("Status", handoffStatusLabel(isInProgress, isResolved)),
+        kv("SLA", isResolved ? "Resolvido" : formatAgeHours(handoffAgeHours) + " · " + slaStatusLabel(getSlaStatus(handoffAgeHours))),
         kv("Motivo", reason),
         kv("Intenção", intent ? intentLabel(intent) : "-"),
         kv("Última mensagem", latestMessage ? '"' + truncate(latestMessage, 160) + '"' : "-"),

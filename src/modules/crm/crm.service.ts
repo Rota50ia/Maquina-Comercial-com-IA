@@ -80,6 +80,8 @@ type LeadSummaryItem = {
 const HUMAN_HANDOFF_ROUTE = "rota:chamar-humano";
 const IN_PROGRESS_HANDOFF_ROUTE = "rota:atendimento-iniciado";
 const RESOLVED_HANDOFF_ROUTE = "rota:handoff-resolvido";
+const HANDOFF_SLA_WARNING_HOURS = 2;
+const HANDOFF_SLA_OVERDUE_HOURS = 6;
 const FOLLOWUP_SCHEDULED_EVENT = "crm_followup_agendado";
 const FOLLOWUP_DONE_EVENT = "crm_followup_realizado";
 const CONTACT_UPDATED_EVENT = "crm_contato_atualizado";
@@ -783,6 +785,7 @@ export async function getCrmReport(filters: CrmReportFilters) {
   const activeCount = contacts.filter((contact) => contact.status === "active").length;
   const optOutCount = contacts.filter((contact) => contact.status === "optout").length;
   const funnel = summarizeAttendanceFunnel(leadItems);
+  const sla = summarizeHandoffSla(leadItems);
 
   return {
     ok: true,
@@ -802,6 +805,7 @@ export async function getCrmReport(filters: CrmReportFilters) {
       followUp: followUpCount,
     },
     funnel,
+    sla,
     byGargalo: countBy(leadItems, (lead) => lead.latestQuizSubmission?.gargalo ?? "sem_gargalo"),
     byClassification: countBy(leadItems, (lead) => lead.latestScore?.classification ?? "sem_score"),
     byRoute: countBy(leadItems, (lead) => lead.latestRoute?.route ?? "sem_rota"),
@@ -885,6 +889,18 @@ function summarizeAttendanceFunnel(leads: LeadSummaryItem[]) {
   };
 }
 
+function summarizeHandoffSla(leads: LeadSummaryItem[]) {
+  const openItems = leads.filter(isLeadInHandoffQueue).map(toReportLeadItem);
+
+  return {
+    warningHours: HANDOFF_SLA_WARNING_HOURS,
+    overdueHours: HANDOFF_SLA_OVERDUE_HOURS,
+    open: openItems.length,
+    attention: openItems.filter((lead) => lead.slaStatus === "attention").length,
+    overdue: openItems.filter((lead) => lead.slaStatus === "overdue").length,
+  };
+}
+
 function getOldestOpenHandoffs(leads: LeadSummaryItem[]) {
   return leads
     .filter(isLeadInHandoffQueue)
@@ -916,7 +932,17 @@ function toReportLeadItem(lead: LeadSummaryItem) {
     classification: lead.latestScore?.classification,
     since,
     ageHours: Math.max(0, Math.round((Date.now() - since.getTime()) / (60 * 60 * 1000))),
+    slaStatus: getHandoffSlaStatus(since),
   };
+}
+
+function getHandoffSlaStatus(since: Date) {
+  const ageHours = Math.max(0, Math.round((Date.now() - since.getTime()) / (60 * 60 * 1000)));
+
+  if (ageHours >= HANDOFF_SLA_OVERDUE_HOURS) return "overdue";
+  if (ageHours >= HANDOFF_SLA_WARNING_HOURS) return "attention";
+
+  return "ok";
 }
 
 function summarizeLeads(leads: LeadSummaryItem[]) {
