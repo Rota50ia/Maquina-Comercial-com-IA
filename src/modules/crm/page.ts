@@ -602,6 +602,7 @@ export function renderCrmPage() {
       selectedId: null,
       view: "all",
       report: null,
+      reportDays: 14,
     };
 
     const elements = {
@@ -808,7 +809,7 @@ export function renderCrmPage() {
       elements.report.innerHTML = '<div class="empty">Carregando relatório...</div>';
 
       try {
-        const response = await fetch("/internal/reports/summary?days=14", { credentials: "same-origin" });
+        const response = await fetch("/internal/reports/summary?days=" + encodeURIComponent(state.reportDays), { credentials: "same-origin" });
         if (!response.ok) throw new Error("Falha ao carregar relatório.");
 
         const data = await response.json();
@@ -832,9 +833,10 @@ export function renderCrmPage() {
 
     function renderReport(report) {
       const totals = report.totals || {};
+      const periodDays = report.period && report.period.days ? report.period.days : state.reportDays;
       elements.metrics.innerHTML = [
         metric("Leads totais", totals.contacts ?? 0),
-        metric("Novos em 14 dias", totals.newContacts ?? 0),
+        metric("Novos no período", totals.newContacts ?? 0),
         metric("Handoff", totals.handoff ?? 0),
         metric("Em atendimento", totals.inProgress ?? 0),
         metric("Resolvidos", totals.resolved ?? 0),
@@ -842,8 +844,11 @@ export function renderCrmPage() {
 
       elements.report.innerHTML = [
         '<div class="report-head">',
-        '<div><h2>Relatório gerencial</h2><div class="muted">Resumo dos últimos ' + escapeHtml(report.period && report.period.days ? report.period.days : 14) + ' dias.</div></div>',
+        '<div><h2>Relatório gerencial</h2><div class="muted">Resumo dos últimos ' + escapeHtml(periodDays) + ' dias.</div></div>',
+        '<div style="display: grid; gap: 8px; min-width: 180px">',
+        '<select id="reportDaysSelect" aria-label="Período do relatório">' + renderReportDaysOptions(periodDays) + '</select>',
         '<span class="badge active">Operacional</span>',
+        '</div>',
         '</div>',
         '<div class="report-grid">',
         reportSection("Funil de atendimento", renderAttendanceFunnel(report.funnel || {}), "full"),
@@ -858,10 +863,24 @@ export function renderCrmPage() {
         reportSection("Últimos eventos", renderLatestEvents(report.latestEvents || []), "full"),
         '</div>',
       ].join("");
+
+      const reportDaysSelect = document.getElementById("reportDaysSelect");
+      if (reportDaysSelect) {
+        reportDaysSelect.addEventListener("change", () => {
+          state.reportDays = Number(reportDaysSelect.value) || 14;
+          loadReport({ showFeedback: true });
+        });
+      }
     }
 
     function reportSection(title, content, variant) {
       return '<div class="report-section ' + escapeHtml(variant || "") + '"><h3>' + escapeHtml(title) + '</h3>' + content + '</div>';
+    }
+
+    function renderReportDaysOptions(selectedDays) {
+      return [7, 14, 30, 60, 90].map((days) => (
+        '<option value="' + days + '"' + (Number(selectedDays) === days ? " selected" : "") + '>Últimos ' + days + ' dias</option>'
+      )).join("");
     }
 
     function renderAttendanceFunnel(funnel) {
