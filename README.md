@@ -33,6 +33,7 @@ https://github.com/Rota50ia/Maquina-Comercial-com-IA
 - ações manuais no CRM.
 - fila de handoff humano.
 - marcação de atendimento iniciado para handoff humano.
+- visão Ações do dia para priorizar handoffs, follow-ups e leads recentes.
 - fila de atendimentos em andamento.
 - visão de handoffs resolvidos.
 - resumo para atendimento humano no detalhe do lead.

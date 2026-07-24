@@ -131,7 +131,7 @@ export function renderCrmPage() {
 
     .view-tabs {
       display: inline-grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(7, 1fr);
       gap: 4px;
       padding: 4px;
       margin-bottom: 12px;
@@ -151,6 +151,13 @@ export function renderCrmPage() {
     .view-button.active {
       background: var(--ink);
       color: #fff;
+    }
+
+    .action-reason {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
     }
 
     input,
@@ -605,6 +612,7 @@ export function renderCrmPage() {
       <div class="metrics" id="metrics"></div>
       <div class="view-tabs" aria-label="Visão do CRM">
         <button class="view-button active" type="button" data-view="all">Todos</button>
+        <button class="view-button" type="button" data-view="today">Ações do dia</button>
         <button class="view-button" type="button" data-view="handoff">Fila handoff</button>
         <button class="view-button" type="button" data-view="inProgress">Em atendimento</button>
         <button class="view-button" type="button" data-view="resolved">Resolvidos</button>
@@ -763,6 +771,7 @@ export function renderCrmPage() {
         const score = lead.latestScore;
         const quiz = lead.latestQuizSubmission;
         const decision = lead.latestRoute;
+        const todayAction = getTodayAction(lead);
         const tags = (lead.tags || []).map((tag) => tag.key).join(" ");
         const searchable = normalize([
           lead.name,
@@ -771,21 +780,29 @@ export function renderCrmPage() {
           lead.status,
           quiz && quiz.gargalo,
           decision && decision.route,
+          todayAction && todayAction.label,
+          todayAction && todayAction.reason,
           tags,
         ].filter(Boolean).join(" "));
 
-        return (!query || searchable.includes(query))
+        return (state.view !== "today" || Boolean(todayAction))
+          && (!query || searchable.includes(query))
           && (!classification || (score && score.classification === classification))
           && (!gargalo || (quiz && quiz.gargalo === gargalo))
           && (!route || (decision && decision.route === route))
           && (!status || lead.status === status);
-      });
+      }).sort(sortTodayActions);
 
       renderMetrics();
       renderRows();
     }
 
     function renderMetrics() {
+      if (state.view === "today") {
+        renderTodayMetrics();
+        return;
+      }
+
       const total = state.filtered.length;
       const quente = state.filtered.filter((lead) => lead.latestScore && lead.latestScore.classification === "quente").length;
       const followup = state.filtered.filter(isLeadInFollowUpQueue).length;
@@ -800,6 +817,24 @@ export function renderCrmPage() {
         metric("Em atendimento", inProgress),
         metric("Resolvidos", resolved),
         metric("Follow-up", followup),
+      ].join("");
+    }
+
+    function renderTodayMetrics() {
+      const actions = state.filtered.map(getTodayAction).filter(Boolean);
+      const overdue = actions.filter((action) => action.type === "handoff_overdue" || action.type === "followup_overdue").length;
+      const handoffs = actions.filter((action) => action.type === "handoff_overdue" || action.type === "handoff_open").length;
+      const followups = actions.filter((action) => action.type === "followup_overdue" || action.type === "followup_today").length;
+      const inProgress = actions.filter((action) => action.type === "in_progress").length;
+      const recent = actions.filter((action) => action.type === "new_lead").length;
+
+      elements.metrics.innerHTML = [
+        metric("Ações", actions.length),
+        metric("Atrasados", overdue),
+        metric("Handoffs", handoffs),
+        metric("Follow-ups", followups),
+        metric("Em atendimento", inProgress),
+        metric("Novos", recent),
       ].join("");
     }
 
@@ -823,6 +858,10 @@ export function renderCrmPage() {
         const quiz = lead.latestQuizSubmission || {};
         const score = lead.latestScore || {};
         const route = lead.latestRoute || {};
+        const todayAction = state.view === "today" ? getTodayAction(lead) : null;
+        const routeContent = todayAction
+          ? '<span class="badge ' + escapeHtml(todayAction.variant) + '">' + escapeHtml(todayAction.label) + '</span><div class="action-reason">' + escapeHtml(todayAction.reason) + '</div>'
+          : escapeHtml(route.route || "-") + '<div class="muted">' + escapeHtml(route.reason || "") + '</div>';
         const row = document.createElement("tr");
         row.className = lead.id === state.selectedId ? "selected" : "";
         row.innerHTML = [
@@ -830,7 +869,7 @@ export function renderCrmPage() {
           cell('<span class="badge ' + escapeHtml(lead.status || "") + '">' + escapeHtml(statusLabel(lead.status)) + '</span>'),
           cell(escapeHtml(quiz.gargalo || "-")),
           cell('<span class="badge ' + escapeHtml(score.classification || "") + '">' + escapeHtml(score.classification || "sem score") + '</span><div class="muted">' + escapeHtml(score.score ?? "-") + '</div>'),
-          cell(escapeHtml(route.route || "-") + '<div class="muted">' + escapeHtml(route.reason || "") + '</div>'),
+          cell(routeContent),
           cell(formatDate(quiz.submittedAt || lead.createdAt)),
           cell(escapeHtml(lead.preferredChannel || "-")),
         ].join("");
@@ -840,7 +879,7 @@ export function renderCrmPage() {
     }
 
     function setView(view) {
-      state.view = ["handoff", "inProgress", "resolved", "followup", "report"].includes(view) ? view : "all";
+      state.view = ["today", "handoff", "inProgress", "resolved", "followup", "report"].includes(view) ? view : "all";
       state.selectedId = null;
       elements.detail.innerHTML = '<div class="detail-head"><h2>Selecione um lead</h2><div class="muted">O histórico aparecerá aqui.</div></div>';
 
@@ -1271,6 +1310,7 @@ export function renderCrmPage() {
     }
 
     function getLeadsUrl() {
+      if (state.view === "today") return "/internal/leads?limit=250";
       if (state.view === "handoff") return "/internal/leads?handoff=true";
       if (state.view === "inProgress") return "/internal/leads?inProgress=true";
       if (state.view === "resolved") return "/internal/leads?resolved=true";
@@ -1752,6 +1792,105 @@ export function renderCrmPage() {
 
     function isLeadInFollowUpQueue(lead) {
       return lead.status !== "optout" && lead.latestFollowUp && lead.latestFollowUp.status === "pending";
+    }
+
+    function getTodayAction(lead) {
+      if (!lead || lead.status === "optout") return null;
+
+      const followUp = lead.latestFollowUp;
+      const route = lead.latestRoute || {};
+
+      if (followUp && followUp.status === "pending" && followUp.dueAt) {
+        const dueAt = new Date(followUp.dueAt);
+        if (isBeforeToday(dueAt)) {
+          return {
+            type: "followup_overdue",
+            priority: 10,
+            label: "Follow-up vencido",
+            reason: "Venceu em " + formatDate(followUp.dueAt),
+            variant: "prioridade",
+          };
+        }
+
+        if (isToday(dueAt)) {
+          return {
+            type: "followup_today",
+            priority: 7,
+            label: "Follow-up hoje",
+            reason: "Agendado para " + formatDate(followUp.dueAt),
+            variant: "quente",
+          };
+        }
+      }
+
+      if (isLeadInHandoffQueue(lead)) {
+        const handoffSince = route.createdAt || lead.updatedAt || lead.createdAt;
+        const ageHours = handoffSince ? getAgeHours(handoffSince) : 0;
+        const isOverdue = getSlaStatus(ageHours) === "overdue";
+        const reason = route.reason || (lead.latestScore && lead.latestScore.classification === "prioridade" ? "Lead classificado como prioridade." : "");
+
+        return {
+          type: isOverdue ? "handoff_overdue" : "handoff_open",
+          priority: isOverdue ? 9 : 8,
+          label: isOverdue ? "Handoff atrasado" : "Handoff aberto",
+          reason: formatAgeHours(ageHours) + " em aberto" + (reason ? " · " + reason : ""),
+          variant: isOverdue ? "prioridade" : "quente",
+        };
+      }
+
+      if (isLeadInProgressQueue(lead)) {
+        return {
+          type: "in_progress",
+          priority: 5,
+          label: "Em atendimento",
+          reason: route.reason || "Atendimento humano iniciado.",
+          variant: "morno",
+        };
+      }
+
+      if (isRecentLead(lead) && !isLeadResolvedQueue(lead)) {
+        return {
+          type: "new_lead",
+          priority: 3,
+          label: "Lead novo",
+          reason: "Entrou hoje no CRM.",
+          variant: "active",
+        };
+      }
+
+      return null;
+    }
+
+    function sortTodayActions(firstLead, secondLead) {
+      if (state.view !== "today") return 0;
+
+      const firstAction = getTodayAction(firstLead);
+      const secondAction = getTodayAction(secondLead);
+      const firstPriority = firstAction ? firstAction.priority : 0;
+      const secondPriority = secondAction ? secondAction.priority : 0;
+
+      if (firstPriority !== secondPriority) return secondPriority - firstPriority;
+
+      return new Date(secondLead.updatedAt || secondLead.createdAt || 0).getTime() - new Date(firstLead.updatedAt || firstLead.createdAt || 0).getTime();
+    }
+
+    function isRecentLead(lead) {
+      return isToday(new Date(lead.createdAt || 0));
+    }
+
+    function isToday(date) {
+      const today = new Date();
+
+      return date.getFullYear() === today.getFullYear()
+        && date.getMonth() === today.getMonth()
+        && date.getDate() === today.getDate();
+    }
+
+    function isBeforeToday(date) {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      return date.getTime() < todayStart.getTime();
     }
 
     function getLatestFollowUpFromEvents(events) {
